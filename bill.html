@@ -556,7 +556,11 @@
                 <div class="stats-grid">
                     <div class="stat-card">
                         <h3>Today's Sales</h3>
-                        <div class="value" id="todaySales">₹0</div>
+                        <div class="value" id="todaySales">₹0.00</div>
+                    </div>
+                    <div class="stat-card">
+                        <h3>Today's Bills</h3>
+                        <div class="value" id="todayBillsCount">0</div>
                     </div>
                     <div class="stat-card">
                         <h3>Total Inventory Items</h3>
@@ -1750,8 +1754,22 @@
                     fetch(`${API_BASE_URL}/bills`).then(res => res.json()),
                     fetch(`${API_BASE_URL}/products`).then(res => res.json())
                 ]);
-                const today = new Date().toDateString();
-                const todaySales = bills.filter(b => new Date(b.bill_date).toDateString() === today).reduce((sum, b) => sum + Number(b.grand_total), 0);
+                
+                const today = new Date();
+                const todayStr = today.toDateString();
+
+                let todaySales = 0;
+                let todayBillsCount = 0;
+
+                bills.forEach(bill => {
+                    const billDate = new Date(bill.bill_date); // Directly create date from ISO string from DB/JSON
+                    
+                    if (billDate.toDateString() === todayStr) {
+                        todaySales += parseFloat(bill.grand_total || 0);
+                        todayBillsCount++;
+                    }
+                });
+
                 const totalItems = products.reduce((sum, p) => sum + p.quantity, 0);
                 const lowStockCount = products.filter(p => p.quantity <= (settings.lowStockThreshold || 10)).length;
                 const expiringSoonDate = new Date();
@@ -1759,11 +1777,13 @@
                 const expiringCount = products.filter(p => p.expiry && new Date(`${p.expiry}-01`) < expiringSoonDate && new Date(`${p.expiry}-01`) > new Date()).length;
 
                 document.getElementById('todaySales').textContent = `₹${todaySales.toFixed(2)}`;
+                document.getElementById('todayBillsCount').textContent = todayBillsCount;
                 document.getElementById('totalItems').textContent = totalItems;
                 document.getElementById('lowStockCount').textContent = lowStockCount;
                 document.getElementById('expiringCount').textContent = expiringCount;
                 updateRecentTransactions(bills);
             } catch (error) {
+                console.error('Error fetching dashboard data:', error);
                 showAlert('Failed to load dashboard data.', 'danger');
             }
         }
@@ -1812,9 +1832,9 @@
                          html += `<tr>${headers.map(h => {
                              const val = row[h];
                              let displayVal = val === null || val === undefined ? '' : val;
-                             const isCurrency = typeof val === 'number' && (h.includes('rate') || h.includes('amount') || h.includes('total') || h.includes('mrp') || h.includes('gst'));
+                             const isCurrency = typeof parseFloat(val) === 'number' && !isNaN(parseFloat(val)) && (h.includes('rate') || h.includes('amount') || h.includes('total') || h.includes('mrp') || h.includes('gst'));
                              if(isCurrency) {
-                                 displayVal = '₹' + val.toFixed(2);
+                                 displayVal = '₹' + parseFloat(val).toFixed(2);
                              }
                              return `<td>${displayVal}</td>`;
                          }).join('')}</tr>`;
