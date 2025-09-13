@@ -41,10 +41,13 @@ CREATE TABLE customers (
 );
 
 -- Create the bills table (Sales bills do not have IGST)
+-- FIX: Changed bill_date from DATE to TIMESTAMP with a default value.
+-- This makes the database the single source of truth for bill creation time,
+-- and it will be stored correctly in the session's timezone (IST).
 CREATE TABLE bills (
     id INT AUTO_INCREMENT PRIMARY KEY,
     bill_number VARCHAR(255) NOT NULL,
-    bill_date DATE NOT NULL,
+    bill_date TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     patient_name VARCHAR(255) NOT NULL,
     patient_mobile VARCHAR(15) NOT NULL,
     doctor_name VARCHAR(255),

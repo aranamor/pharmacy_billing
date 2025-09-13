@@ -1713,7 +1713,7 @@
 
             document.getElementById('invoiceContent').innerHTML = `
                 <div class="bill-header"> <h2>Invoice</h2> <h1>${settings.shopName}</h1> <p>GST: ${settings.gst} | Ph: ${settings.phone}</p> <p>${settings.address}</p> </div>
-                <div class="bill-details" style="display: flex; justify-content: space-between;"> <div><strong>Bill No:</strong> ${bill.bill_number}</div> <div><strong>Date:</strong> ${new Date(bill.bill_date).toLocaleDateString()}</div> </div>
+                <div class="bill-details" style="display: flex; justify-content: space-between;"> <div><strong>Bill No:</strong> ${bill.bill_number}</div> <div><strong>Date:</strong> ${formatDateForDisplay(bill.bill_date)}</div> </div>
                 <div class="bill-details" style="display: flex; justify-content: space-between;"> <div><strong>Patient Name:</strong> ${bill.patient_name}</div> <div><strong>Mobile:</strong> ${bill.patient_mobile}</div> </div>
                 ${bill.doctor_name ? `<div><strong>Doctor Name:</strong> ${bill.doctor_name}</div>` : ''}
                 <table style="margin-top: 20px;"> <thead> <tr> <th>Product</th> <th>Batch</th> <th>Exp</th> <th>MRP</th> <th>Qty</th> <th>Rate</th> <th>Disc %</th> <th>GST</th> <th>Amount</th> </tr> </thead> <tbody> ${itemsHtml} </tbody> </table>
@@ -1748,45 +1748,28 @@
         }
 
         // Dashboard & Reporting
+        // FIX: The dashboard data is now fetched from a dedicated, reliable server endpoint.
         async function fetchDashboardData() {
             try {
-                const [bills, products] = await Promise.all([
-                    fetch(`${API_BASE_URL}/bills`).then(res => res.json()),
-                    fetch(`${API_BASE_URL}/products`).then(res => res.json())
-                ]);
-                
-                const today = new Date();
-                const todayStr = today.toDateString();
+                const response = await fetch(`${API_BASE_URL}/dashboard-stats`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch dashboard stats');
+                }
+                const data = await response.json();
 
-                let todaySales = 0;
-                let todayBillsCount = 0;
+                document.getElementById('todaySales').textContent = `₹${Number(data.todaySales).toFixed(2)}`;
+                document.getElementById('todayBillsCount').textContent = data.todayBillsCount;
+                document.getElementById('totalItems').textContent = data.totalItems;
+                document.getElementById('lowStockCount').textContent = data.lowStockCount;
+                document.getElementById('expiringCount').textContent = data.expiringCount;
+                updateRecentTransactions(data.recentTransactions);
 
-                bills.forEach(bill => {
-                    const billDate = new Date(bill.bill_date); // Directly create date from ISO string from DB/JSON
-                    
-                    if (billDate.toDateString() === todayStr) {
-                        todaySales += parseFloat(bill.grand_total || 0);
-                        todayBillsCount++;
-                    }
-                });
-
-                const totalItems = products.reduce((sum, p) => sum + p.quantity, 0);
-                const lowStockCount = products.filter(p => p.quantity <= (settings.lowStockThreshold || 10)).length;
-                const expiringSoonDate = new Date();
-                expiringSoonDate.setMonth(expiringSoonDate.getMonth() + 1);
-                const expiringCount = products.filter(p => p.expiry && new Date(`${p.expiry}-01`) < expiringSoonDate && new Date(`${p.expiry}-01`) > new Date()).length;
-
-                document.getElementById('todaySales').textContent = `₹${todaySales.toFixed(2)}`;
-                document.getElementById('todayBillsCount').textContent = todayBillsCount;
-                document.getElementById('totalItems').textContent = totalItems;
-                document.getElementById('lowStockCount').textContent = lowStockCount;
-                document.getElementById('expiringCount').textContent = expiringCount;
-                updateRecentTransactions(bills);
             } catch (error) {
                 console.error('Error fetching dashboard data:', error);
                 showAlert('Failed to load dashboard data.', 'danger');
             }
         }
+
         function updateRecentTransactions(bills) {
             const body = document.getElementById('recentTransactionsBody');
             body.innerHTML = '';
@@ -1796,7 +1779,7 @@
             }
             bills.slice(0, 5).forEach(b => {
                 body.innerHTML += `<tr>
-                    <td>${b.bill_number}</td> <td>${new Date(b.bill_date).toLocaleDateString()}</td>
+                    <td>${b.bill_number}</td> <td>${formatDateForDisplay(b.bill_date)}</td>
                     <td>${b.patient_name}</td> <td>₹${Number(b.grand_total).toFixed(2)}</td>
                     <td><span style="color: green; font-weight: bold;">Paid</span></td>
                 </tr>`;
@@ -1835,6 +1818,8 @@
                              const isCurrency = typeof parseFloat(val) === 'number' && !isNaN(parseFloat(val)) && (h.includes('rate') || h.includes('amount') || h.includes('total') || h.includes('mrp') || h.includes('gst'));
                              if(isCurrency) {
                                  displayVal = '₹' + parseFloat(val).toFixed(2);
+                             } else if (h.includes('date')) { // Format dates in reports too
+                                 displayVal = formatDateForDisplay(val);
                              }
                              return `<td>${displayVal}</td>`;
                          }).join('')}</tr>`;
@@ -1869,7 +1854,7 @@
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${bill.bill_number}</td>
-                    <td>${new Date(bill.bill_date).toLocaleDateString()}</td>
+                    <td>${formatDateForDisplay(bill.bill_date)}</td>
                     <td>${bill.patient_name}</td>
                     <td>₹${parseFloat(bill.grand_total).toFixed(2)}</td>
                     <td>
@@ -2039,7 +2024,7 @@
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${bill.bill_number}</td> <td>${bill.supplier_name}</td>
-                    <td>${new Date(bill.bill_date).toLocaleDateString('en-GB')}</td> <td>${bill.tax_type}</td>
+                    <td>${formatDateForDisplay(bill.bill_date)}</td> <td>${bill.tax_type}</td>
                     <td>₹${Number(bill.total_amount).toFixed(2)}</td>
                     <td><button class="btn btn-info btn-sm" onclick="viewPurchaseBill(${bill.id})">👁️ View</button></td>
                 `;
@@ -2047,12 +2032,24 @@
             });
         }
 
-        function showAddPurchaseModal() {
+        async function showAddPurchaseModal() {
             purchaseBillItems = [];
             document.getElementById('addPurchaseModal').classList.add('active');
             document.getElementById('purchaseSupplierName').value = '';
             document.getElementById('purchaseBillNumber').value = '';
-            document.getElementById('purchaseBillDate').valueAsDate = new Date();
+            
+            // FIX: Fetch the current IST date from the server to set as the default.
+            try {
+                const response = await fetch(`${API_BASE_URL}/current-ist-date`);
+                const data = await response.json();
+                // The server returns the date in 'YYYY-MM-DD' format, which is exactly what the input needs.
+                document.getElementById('purchaseBillDate').value = data.currentDate;
+            } catch (error) {
+                console.error("Could not fetch current date, falling back to local date.", error);
+                // Fallback in case of network error
+                document.getElementById('purchaseBillDate').valueAsDate = new Date();
+            }
+
             clearPurchaseProductForm();
             updatePurchaseItemsTable();
             calculatePurchaseTotal();
@@ -2218,7 +2215,7 @@
                 document.getElementById('viewPurchaseContent').innerHTML = `
                     <p><strong>Supplier:</strong> ${bill.supplier_name}</p>
                     <p><strong>Bill No:</strong> ${bill.bill_number}</p>
-                    <p><strong>Date:</strong> ${new Date(bill.bill_date).toLocaleDateString('en-GB')}</p>
+                    <p><strong>Date:</strong> ${formatDateForDisplay(bill.bill_date)}</p>
                     <p><strong>Tax Type:</strong> ${bill.tax_type}</p>
                     <h4 style="margin-top:20px;">Items</h4>
                     <table> <thead> <tr> <th>Product</th> <th>Pkg</th> <th>Batch</th> <th>Qty</th> <th>Rate</th> <th>Disc</th> <th>GST</th> <th>Amount</th> </tr> </thead> <tbody>${itemsHtml}</tbody> </table>
@@ -2230,12 +2227,29 @@
             }
         }
         
-        // Helper Functions & Customer Management (unchanged)
+        // Helper Functions & Customer Management
+        // FIX: This function is now robust and correctly formats the TIMESTAMP from the server.
+        // It creates a Date object, which correctly interprets the ISO 8601 format (including 'Z' for UTC),
+        // and then extracts the local day, month, and year for display.
+        function formatDateForDisplay(dateString) {
+            if (!dateString) return 'N/A';
+            // Create a date object. The string from MySQL TIMESTAMP will be in ISO format
+            // and correctly parsed by the Date constructor.
+            const date = new Date(dateString);
+            const day = String(date.getDate()).padStart(2, '0');
+            const month = String(date.getMonth() + 1).padStart(2, '0'); // Months are 0-based
+            const year = date.getFullYear();
+            return `${day}/${month}/${year}`;
+        }
+
         function setTodayDate() {
+            // This correctly sets the report dates to the user's local "today",
+            // which is the desired behavior for filtering.
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('reportFromDate').value = today;
             document.getElementById('reportToDate').value = today;
         }
+
         function showAlert(message, type) {
             const container = document.getElementById('alert-container');
             const alertDiv = document.createElement('div');

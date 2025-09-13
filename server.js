@@ -26,7 +26,11 @@ const DB_CONFIG = {
     database: 'pharmacy_db',
     waitForConnections: true,
     connectionLimit: 10,
-    queueLimit: 0
+    queueLimit: 0,
+    // FIX: Set connection timezone to IST (+05:30).
+    // This is the most critical change. It ensures all date/time functions
+    // like NOW(), CURDATE(), and CURRENT_TIMESTAMP operate in IST for this connection.
+    timezone: '+05:30'
 };
 // --------------------------------------------------------------------
 
@@ -48,6 +52,65 @@ async function query(sql, params = []) {
     const [rows] = await pool.execute(sql, params);
     return rows;
 }
+
+// ---------- NEW ENDPOINT FOR CURRENT DATE ----------
+// Provides a reliable IST date for client-side defaults.
+app.get('/api/current-ist-date', async (req, res) => {
+    try {
+        const [rows] = await pool.query("SELECT CURDATE() as today");
+        // The date will be returned in 'YYYY-MM-DD' format which is perfect for an <input type="date">
+        const date = new Date(rows[0].today);
+        const year = date.getFullYear();
+        const month = String(date.getMonth() + 1).padStart(2, '0');
+        const day = String(date.getDate()).padStart(2, '0');
+        res.json({ currentDate: `${year}-${month}-${day}` });
+    } catch (err) {
+        console.error('GET /api/current-ist-date error:', err);
+        res.status(500).json({ error: 'Failed to fetch current date' });
+    }
+});
+
+
+// ---------- DASHBOARD ----------
+// FIX: New endpoint to calculate dashboard stats reliably on the server.
+// This avoids client-side timezone issues and centralizes the logic.
+app.get('/api/dashboard-stats', async (req, res) => {
+    try {
+        // Use CURDATE() which will be in IST due to the connection timezone setting
+        const today = 'CURDATE()';
+
+        const [salesTodayResult] = await pool.query(`SELECT SUM(grand_total) as totalSales, COUNT(id) as billCount FROM bills WHERE DATE(bill_date) = ${today}`);
+        
+        const [inventoryStatsResult] = await pool.query(`SELECT SUM(quantity) as totalItems FROM products`);
+        
+        const [settingsRows] = await pool.query("SELECT setting_value FROM settings WHERE setting_key = 'lowStockThreshold'");
+        const lowStockThreshold = settingsRows.length > 0 ? Number(settingsRows[0].setting_value) : 10;
+        const [lowStockResult] = await pool.query('SELECT COUNT(id) as lowStockCount FROM products WHERE quantity <= ?', [lowStockThreshold]);
+        
+        const [expiringResult] = await pool.query(`
+            SELECT COUNT(id) as expiringCount 
+            FROM products 
+            WHERE expiry IS NOT NULL 
+            AND STR_TO_DATE(CONCAT(expiry, '-01'), '%Y-%m-%d') BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
+        `);
+
+        const [recentTransactions] = await pool.query('SELECT * FROM bills ORDER BY id DESC LIMIT 5');
+
+        res.json({
+            todaySales: salesTodayResult[0].totalSales || 0,
+            todayBillsCount: salesTodayResult[0].billCount || 0,
+            totalItems: inventoryStatsResult[0].totalItems || 0,
+            lowStockCount: lowStockResult[0].lowStockCount || 0,
+            expiringCount: expiringResult[0].expiringCount || 0,
+            recentTransactions: recentTransactions,
+        });
+
+    } catch (err) {
+        console.error('GET /api/dashboard-stats error:', err);
+        res.status(500).json({ error: 'Failed to fetch dashboard stats' });
+    }
+});
+
 
 // ---------- PRODUCTS ----------
 app.get('/api/products', async (req, res) => {
@@ -143,7 +206,6 @@ app.delete('/api/products/:id', async (req, res) => {
 });
 
 // ---------- CUSTOMERS ----------
-// ... (customer routes are unchanged) ...
 app.get('/api/customers', async (req, res) => {
     try {
         const rows = await query('SELECT * FROM customers ORDER BY name ASC');
@@ -173,12 +235,10 @@ app.get('/api/customers/search', async (req, res) => {
     }
 });
 
-// Endpoint to add a new customer (used by the billing process)
 app.post('/api/customers', async (req, res) => {
     const conn = await pool.getConnection();
     try {
         const { name, mobile, doctorName } = req.body;
-        // Check for existing customer to prevent duplicates
         const [existing] = await conn.query('SELECT id FROM customers WHERE mobile = ? LIMIT 1', [mobile]);
         if (existing.length > 0) {
             conn.release();
@@ -242,7 +302,6 @@ app.put('/api/customers/:id', async (req, res) => {
     }
 });
 
-// Endpoint to delete a customer
 app.delete('/api/customers/:id', async (req, res) => {
     try {
         const id = Number(req.params.id);
@@ -259,13 +318,11 @@ app.delete('/api/customers/:id', async (req, res) => {
 
 
 // ---------- SETTINGS ----------
-// ... (settings routes are unchanged) ...
 app.get('/api/settings', async (req, res) => {
     try {
         const rows = await query('SELECT * FROM settings');
         const obj = {};
         rows.forEach(r => obj[r.setting_key] = r.setting_value);
-        // Normalize numeric lowStockThreshold
         if (obj.lowStockThreshold) obj.lowStockThreshold = Number(obj.lowStockThreshold);
         res.json(obj);
     } catch (err) {
@@ -277,7 +334,6 @@ app.get('/api/settings', async (req, res) => {
 app.post('/api/settings', async (req, res) => {
     try {
         const newSettings = req.body.settings || req.body;
-        // upsert settings keys
         const keys = Object.keys(newSettings);
         for (const key of keys) {
             const value = String(newSettings[key]);
@@ -295,7 +351,6 @@ app.post('/api/settings', async (req, res) => {
 
 
 // ---------- BILLS (SALES) ----------
-// List bills
 app.get('/api/bills', async (req, res) => {
     try {
         const rows = await query('SELECT * FROM bills ORDER BY id DESC');
@@ -306,7 +361,6 @@ app.get('/api/bills', async (req, res) => {
     }
 });
 
-// Get single bill with items
 app.get('/api/bills/:id', async (req, res) => {
     const conn = await pool.getConnection();
     try {
@@ -334,7 +388,7 @@ app.post('/api/bills', async (req, res) => {
     try {
         const body = req.body;
         const billNumber = body.billNumber || `BILL-${Date.now()}`;
-        const billDate = body.billDate || new Date().toISOString().slice(0, 10); // YYYY-MM-DD
+        
         const { patientName, patientMobile, doctorName, items } = body;
 
         let customerId = null;
@@ -361,9 +415,9 @@ app.post('/api/bills', async (req, res) => {
         await conn.beginTransaction();
 
         const [billInsert] = await conn.query(
-            `INSERT INTO bills (bill_number, bill_date, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-             [billNumber, billDate, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId]
+            `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId]
         );
         const billId = billInsert.insertId;
 
@@ -403,7 +457,6 @@ app.put('/api/bills/:id', async (req, res) => {
         
         let { items, patient_name, patient_mobile, doctor_name } = body;
         
-        // SERVER-SIDE RECALCULATION FOR RIGIDITY
         let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
         for (const it of items) {
             const currentRate = Number(it.rate);
@@ -510,7 +563,6 @@ app.post('/api/purchases', async (req, res) => {
             return res.status(400).json({ error: 'Missing required fields for purchase bill.' });
         }
         
-        // Server-side calculation of total amount for accuracy
         const totalAmount = items.reduce((sum, item) => {
             const base = item.purchaseRate * item.quantity;
             const discounted = base * (1 - (item.discount / 100));
@@ -578,11 +630,11 @@ app.get('/api/reports', async (req, res) => {
 
         switch(type) {
             case 'sales':
-                queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, patient_name, grand_total FROM bills WHERE bill_date BETWEEN ? AND ? ORDER BY bill_date DESC`;
+                queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, patient_name, grand_total FROM bills WHERE DATE(bill_date) BETWEEN ? AND ? ORDER BY bill_date DESC`;
                 reportData = await query(queryStr, [fromDate, toDate]);
                 break;
             case 'gst':
-                queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, subtotal, total_discount, (subtotal - total_discount) as taxable_value, total_cgst, total_sgst, grand_total FROM bills WHERE bill_date BETWEEN ? AND ? ORDER BY bill_date DESC`;
+                queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, subtotal, total_discount, (subtotal - total_discount) as taxable_value, total_cgst, total_sgst, grand_total FROM bills WHERE DATE(bill_date) BETWEEN ? AND ? ORDER BY bill_date DESC`;
                 reportData = await query(queryStr, [fromDate, toDate]);
                 break;
             case 'inventory':
@@ -615,7 +667,7 @@ app.get('/api/reports', async (req, res) => {
                     JOIN
                         products p ON bi.product_id = p.id
                     WHERE
-                        b.bill_date BETWEEN ? AND ?
+                        DATE(b.bill_date) BETWEEN ? AND ?
                     GROUP BY
                         p.hsn, p.packaging, bi.cgst, bi.sgst
                     ORDER BY
