@@ -116,6 +116,10 @@
             gap: 20px;
             margin-bottom: 30px;
         }
+        
+        .form-grid-col-3 {
+             grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+        }
 
         .form-group {
             display: flex;
@@ -145,6 +149,24 @@
             box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
         }
 
+        .tax-toggle-group {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 20px;
+            background-color: #f0f2f5;
+            padding: 10px;
+            border-radius: 8px;
+        }
+
+        .tax-toggle-group label {
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+
         .btn {
             padding: 12px 30px;
             border: none;
@@ -156,6 +178,11 @@
             display: inline-flex;
             align-items: center;
             gap: 8px;
+        }
+        
+        .btn-sm {
+            padding: 5px 10px;
+            font-size: 12px;
         }
 
         .btn-primary {
@@ -351,10 +378,20 @@
         }
 
         .alert {
-            padding: 15px;
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            padding: 15px 25px;
             border-radius: 8px;
-            margin-bottom: 20px;
-            animation: slideIn 0.3s;
+            z-index: 9999;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            animation: slideIn 0.3s, fadeOut 0.5s 4.5s forwards;
+            max-width: 400px;
+        }
+        
+        @keyframes fadeOut {
+            from { opacity: 1; }
+            to { opacity: 0; }
         }
 
         .alert-success {
@@ -373,6 +410,12 @@
             background: #fff3cd;
             color: #856404;
             border: 1px solid #ffeeba;
+        }
+
+        .alert-info {
+            background: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
         }
 
         .search-box {
@@ -481,6 +524,7 @@
     </style>
 </head>
 <body>
+    <div id="alert-container"></div>
     <div class="container">
         <div class="header">
             <div class="shop-info">
@@ -499,11 +543,11 @@
             <button class="tab active" onclick="switchTab('dashboard')">📊 Dashboard</button>
             <button class="tab" onclick="switchTab('billing')">💰 Billing</button>
             <button class="tab" onclick="switchTab('inventory')">📦 Inventory</button>
+            <button class="tab" onclick="switchTab('purchases')">🛒 Purchases</button>
             <button class="tab" onclick="switchTab('customers')">👥 Customers</button>
             <button class="tab" onclick="switchTab('reports')">📈 Reports</button>
             <button class="tab" onclick="switchTab('settings')">⚙️ Settings</button>
             <button class="tab" onclick="switchTab('oldBills')">📜 Bills</button>
-
         </div>
 
         <div class="content">
@@ -683,19 +727,42 @@
                     <thead>
                         <tr>
                             <th>Product Name</th>
+                            <th>Packaging</th>
                             <th>HSN</th>
                             <th>Batch</th>
                             <th>Quantity</th>
                             <th>MRP</th>
-                            <th>Sale Rate</th>
+                            <th>Purchase Rate</th>
+                            <th>Sale Rate (Incl. GST)</th>
                             <th>Expiry</th>
-                            <th>CGST %</th>
-                            <th>SGST %</th>
                             <th>Actions</th>
                         </tr>
                     </thead>
                     <tbody id="inventoryBody">
                         <tr><td colspan="10" style="text-align: center;">No products in inventory</td></tr>
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Purchases Tab -->
+            <div id="purchases" class="tab-content">
+                <h2>Purchase Management</h2>
+                <div class="inventory-actions">
+                    <button class="btn btn-primary" onclick="showAddPurchaseModal()">➕ Add New Purchase Bill</button>
+                </div>
+                <table id="purchaseBillsTable">
+                    <thead>
+                        <tr>
+                            <th>Bill No</th>
+                            <th>Supplier</th>
+                            <th>Bill Date</th>
+                            <th>Tax Type</th>
+                            <th>Total Amount</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="purchaseBillsBody">
+                        <tr><td colspan="6" style="text-align:center;">Loading purchase bills...</td></tr>
                     </tbody>
                 </table>
             </div>
@@ -724,7 +791,6 @@
                 </table>
             </div>
 
-
             <div id="reports" class="tab-content">
                 <h2>Reports & Analytics</h2>
                 
@@ -741,6 +807,7 @@
                         <label>Report Type</label>
                         <select id="reportType">
                             <option value="sales">Sales Report</option>
+                            <option value="purchases">Purchase Report</option>
                             <option value="gst">GST Report</option>
                             <option value="inventory">Inventory Report</option>
                             <option value="expiry">Expiry Report</option>
@@ -805,28 +872,25 @@
                 </table>
             </div>
 
-            <!-- Edit Bill Modal -->
-            <div id="editBillModal" class="modal">
-                <div class="modal-content" style="min-width: 800px;">
-                    <h2>Edit Bill</h2>
-                    <div id="editBillContent"></div>
-                    <div style="margin-top: 20px; display: flex; gap: 10px;">
-                        <button class="btn btn-success" onclick="saveEditedBill()">💾 Save Changes</button>
-                        <button class="btn btn-danger" onclick="closeModal('editBillModal')">Cancel</button>
-                    </div>
-                </div>
-            </div>
-
         </div>
     </div>
 
+    <!-- MODALS SECTION -->
+
+    <!-- Add/Edit Product Modal -->
     <div id="addProductModal" class="modal">
         <div class="modal-content">
-            <h2>Add New Product</h2>
+            <h2>Add New Product (Manual)</h2>
             <div class="form-grid">
                 <div class="form-group">
                     <label>Product Name *</label>
                     <input type="text" id="newProductName" placeholder="Enter product name">
+                </div>
+                <div class="form-group">
+                    <label>Packaging Type</label>
+                    <select id="newPackaging">
+                        <!-- Options will be populated by JS -->
+                    </select>
                 </div>
                 <div class="form-group">
                     <label>HSN Code *</label>
@@ -845,24 +909,24 @@
                     <input type="number" id="newMRP" step="0.01" placeholder="Maximum retail price">
                 </div>
                 <div class="form-group">
-                    <label>Rate (Inclusive of Tax)</label>
-                    <input type="number" id="newSaleRateInclusive" step="0.01" placeholder="Price with GST" oninput="calculateExclusiveRate()">
+                    <label>Sale Rate (Incl. Tax) *</label>
+                    <input type="number" id="newSaleRateInclusive" step="0.01" placeholder="Price with GST" oninput="calculateSaleExclusiveRate()">
                 </div>
                 <div class="form-group">
-                    <label>Rate (Exclusive of Tax) *</label>
-                    <input type="number" id="newSaleRate" step="0.01" placeholder="Selling price without GST">
+                    <label>Sale Rate (Excl. Tax)</label>
+                    <input type="number" id="newSaleRate" step="0.01" readonly>
+                </div>
+                 <div class="form-group">
+                    <label>CGST % *</label>
+                    <input type="number" id="newCGST" min="0" max="100" step="0.5" value="6" oninput="calculateSaleExclusiveRate()">
+                </div>
+                <div class="form-group">
+                    <label>SGST % *</label>
+                    <input type="number" id="newSGST" min="0" max="100" step="0.5" value="6" oninput="calculateSaleExclusiveRate()">
                 </div>
                 <div class="form-group">
                     <label>Expiry Date *</label>
                     <input type="month" id="newExpiry">
-                </div>
-                <div class="form-group">
-                    <label>CGST % *</label>
-                    <input type="number" id="newCGST" min="0" max="100" step="0.5" value="6" oninput="calculateExclusiveRate()">
-                </div>
-                <div class="form-group">
-                    <label>SGST % *</label>
-                    <input type="number" id="newSGST" min="0" max="100" step="0.5" value="6" oninput="calculateExclusiveRate()">
                 </div>
             </div>
             <div style="margin-top: 20px; display: flex; gap: 10px;">
@@ -872,6 +936,150 @@
         </div>
     </div>
 
+    <!-- Add Purchase Bill Modal -->
+    <div id="addPurchaseModal" class="modal">
+        <div class="modal-content" style="min-width: 90vw; max-width: 1200px;">
+            <h2>Add New Purchase Bill</h2>
+            
+            <!-- Supplier Details -->
+            <div class="form-grid">
+                <div class="form-group">
+                    <label>Supplier Name *</label>
+                    <input type="text" id="purchaseSupplierName" placeholder="Enter supplier name">
+                </div>
+                <div class="form-group">
+                    <label>Purchase Bill No *</label>
+                    <input type="text" id="purchaseBillNumber" placeholder="Enter bill number from supplier">
+                </div>
+                <div class="form-group">
+                    <label>Bill Date *</label>
+                    <input type="date" id="purchaseBillDate">
+                </div>
+            </div>
+    
+            <div class="tax-toggle-group">
+                <strong>Tax Type for this Purchase:</strong>
+                <label><input type="radio" name="purchaseTaxType" value="CSGST" checked> CGST/SGST</label>
+                <label><input type="radio" name="purchaseTaxType" value="IGST"> IGST</label>
+            </div>
+            
+            <hr style="margin: 20px 0;">
+
+            <!-- Add Products to Purchase -->
+            <h3>Add Products to Bill</h3>
+            <div class="form-grid form-grid-col-3" style="margin-bottom: 10px;">
+                <div class="form-group">
+                    <label>Product Name *</label>
+                    <input type="text" id="purchaseProductName">
+                </div>
+                <div class="form-group">
+                    <label>Packaging</label>
+                    <select id="purchasePackaging"></select>
+                </div>
+                <div class="form-group">
+                    <label>HSN *</label>
+                    <input type="text" id="purchaseHSN">
+                </div>
+                <div class="form-group">
+                    <label>Batch *</label>
+                    <input type="text" id="purchaseBatch">
+                </div>
+                <div class="form-group">
+                    <label>Quantity *</label>
+                    <input type="number" id="purchaseQty" min="1">
+                </div>
+                <div class="form-group">
+                    <label>Expiry *</label>
+                    <input type="month" id="purchaseExpiry">
+                </div>
+            </div>
+            <div class="form-grid form-grid-col-3">
+                 <div class="form-group">
+                    <label>Purchase Rate *</label>
+                    <input type="number" id="purchaseRate" step="0.01" placeholder="Excl. Tax">
+                </div>
+                 <div class="form-group">
+                    <label>Purchase GST % *</label>
+                    <input type="number" id="purchaseGstPercent" min="0" value="12" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label>Discount %</label>
+                    <input type="number" id="purchaseDiscount" min="0" value="0" step="0.01">
+                </div>
+                 <div class="form-group">
+                    <label>Sale Rate (Incl. Tax) *</label>
+                    <input type="number" id="purchaseSaleRateIncl" step="0.01" oninput="calculatePurchaseSaleExclusiveRate()">
+                </div>
+                <div class="form-group">
+                    <label>Sale GST % *</label>
+                    <input type="number" id="purchaseSaleGstPercent" min="0" value="12" step="0.01" oninput="calculatePurchaseSaleExclusiveRate()">
+                </div>
+                <div class="form-group">
+                    <label>Sale Rate (Excl. Tax)</label>
+                    <input type="number" id="purchaseSaleRateExcl" step="0.01" readonly>
+                </div>
+                 <div class="form-group">
+                    <label>MRP *</label>
+                    <input type="number" id="purchaseMRP" step="0.01">
+                </div>
+            </div>
+            <button class="btn btn-info" onclick="addProductToPurchaseBill()">➕ Add Product</button>
+    
+            <!-- Current Purchase Bill Items -->
+            <div class="bill-section" style="margin-top:20px;">
+                <h3>Purchase Items</h3>
+                <table id="purchaseItemsTable">
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th>Batch</th>
+                            <th>Qty</th>
+                            <th>Purchase Rate</th>
+                            <th>Disc %</th>
+                            <th>GST</th>
+                            <th>Amount</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="purchaseItemsBody">
+                        <tr><td colspan="8" style="text-align: center;">No items added</td></tr>
+                    </tbody>
+                </table>
+                <div class="total-section" style="margin-top:10px;">
+                     <div class="total-row">
+                        <span>Total (Pre-rounding):</span>
+                        <span id="purchaseTotalAmount">₹0.00</span>
+                    </div>
+                    <div class="total-row">
+                        <span>Rounding:</span>
+                        <span id="purchaseRoundingAmount">₹0.00</span>
+                    </div>
+                    <div class="total-row">
+                        <strong><span>Grand Total:</span></strong>
+                        <strong><span id="purchaseGrandTotal">₹0.00</span></strong>
+                    </div>
+                </div>
+            </div>
+    
+            <div style="margin-top: 20px; display: flex; gap: 10px;">
+                <button class="btn btn-success" onclick="savePurchaseBill()">💾 Save Purchase Bill</button>
+                <button class="btn btn-danger" onclick="closeModal('addPurchaseModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- View Purchase Modal -->
+    <div id="viewPurchaseModal" class="modal">
+        <div class="modal-content" style="min-width: 800px;">
+            <h2>Purchase Bill Details</h2>
+            <div id="viewPurchaseContent"></div>
+            <div style="margin-top: 20px;">
+                <button class="btn btn-danger" onclick="closeModal('viewPurchaseModal')">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Invoice Modal -->
     <div id="invoiceModal" class="modal">
         <div class="modal-content" style="min-width: 800px;">
             <div class="invoice-container" id="invoiceContent">
@@ -882,7 +1090,20 @@
             </div>
         </div>
     </div>
+    
+    <!-- Edit Bill Modal -->
+    <div id="editBillModal" class="modal">
+        <div class="modal-content" style="min-width: 800px;">
+            <h2>Edit Bill</h2>
+            <div id="editBillContent"></div>
+            <div style="margin-top: 20px; display: flex; gap: 10px;">
+                <button class="btn btn-success" onclick="saveEditedBill()">💾 Save Changes</button>
+                <button class="btn btn-danger" onclick="closeModal('editBillModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
 
+    <!-- Edit Customer Modal -->
     <div id="editCustomerModal" class="modal">
         <div class="modal-content">
             <h2>Edit Customer</h2>
@@ -913,14 +1134,17 @@
         // Data Storage
         let inventory = [];
         let billItems = [];
+        let purchaseBillItems = [];
         let transactions = [];
         let settings = {};
+        const packagingTypes = [ "STRIP", "BOTTLE", "PACK", "JAR", "TABLET", "CAPSULES", "BOX", "TUBE", "PIECE", "VIAL", "INJ", "SACHET", "SPRAY BOTTLE", "CAN", "UNIT", "AMPUL", "DROP", "PACKET", "POUCH", "INSURANCE", "RESPULE", "AMPOULE", "GLOVES", "INSULIN", "VIAL & SMALL BOTTLE", "SYRINGE", "TIN", "CONTAINER", "SUPPOSITRIES", "ML", "INJECTION" ];
 
         // Base URL for the API
         const API_BASE_URL = 'http://localhost:3000/api';
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async function() {
+            populatePackagingDropdowns();
             await fetchSettings();
             await fetchInventory();
             await fetchDashboardData();
@@ -946,7 +1170,21 @@
                 document.getElementById('reportContent').innerHTML = ''; // Clear previous report
             } else if (tabName === 'oldBills') {
                 fetchBills();
+            } else if (tabName === 'purchases') {
+                fetchPurchaseBills();
             }
+        }
+
+        function populatePackagingDropdowns() {
+            const newPackagingSelect = document.getElementById('newPackaging');
+            const purchasePackagingSelect = document.getElementById('purchasePackaging');
+            
+            packagingTypes.forEach(type => {
+                const option1 = new Option(type, type);
+                const option2 = new Option(type, type);
+                newPackagingSelect.add(option1);
+                purchasePackagingSelect.add(option2);
+            });
         }
 
 
@@ -1018,25 +1256,17 @@
         // Inventory Management
         async function fetchInventory() {
             try {
-                console.log('Fetching inventory...');
                 const response = await fetch(`${API_BASE_URL}/products`);
-                
                 if (!response.ok) {
                     const errorData = await response.json();
                     throw new Error(errorData.error || 'Failed to fetch inventory');
                 }
-                
                 inventory = await response.json();
-                console.log('Inventory loaded:', inventory);
                 updateInventoryTable(inventory);
-                
-                // Update dashboard counts if on dashboard
                 if (document.getElementById('dashboard').classList.contains('active')) {
                     await fetchDashboardData();
                 }
             } catch (error) {
-                console.error('Error fetching inventory:', error);
-                // Still try to update the table even if empty
                 inventory = [];
                 updateInventoryTable(inventory);
                 showAlert('Failed to load inventory: ' + error.message, 'danger');
@@ -1049,24 +1279,24 @@
         }
 
         function closeModal(modalId) {
-            document.getElementById(modalId).classList.remove('active');
+            const modal = document.getElementById(modalId);
+            if (modal) {
+                modal.classList.remove('active');
+            }
         }
 
-        function calculateExclusiveRate() {
+        function calculateSaleExclusiveRate() {
             const inclusiveRateEl = document.getElementById('newSaleRateInclusive');
             const exclusiveRateEl = document.getElementById('newSaleRate');
-            const cgstEl = document.getElementById('newCGST');
-            const sgstEl = document.getElementById('newSGST');
-
+            const cgst = parseFloat(document.getElementById('newCGST').value) || 0;
+            const sgst = parseFloat(document.getElementById('newSGST').value) || 0;
+            const totalGstPercent = cgst + sgst;
             const inclusiveRate = parseFloat(inclusiveRateEl.value);
-            const cgst = parseFloat(cgstEl.value) || 0;
-            const sgst = parseFloat(sgstEl.value) || 0;
 
             if (!isNaN(inclusiveRate) && inclusiveRate > 0) {
-                const totalGstPercent = cgst + sgst;
                 const exclusiveRate = inclusiveRate / (1 + (totalGstPercent / 100));
                 exclusiveRateEl.value = exclusiveRate.toFixed(2);
-            } else if (inclusiveRateEl.value.trim() === '') {
+            } else {
                  exclusiveRateEl.value = '';
             }
         }
@@ -1074,11 +1304,13 @@
         async function addProduct() {
             const product = {
                 name: document.getElementById('newProductName').value,
+                packaging: document.getElementById('newPackaging').value,
                 hsn: document.getElementById('newHSN').value,
                 batch: document.getElementById('newBatch').value,
                 quantity: parseInt(document.getElementById('newQuantity').value),
                 mrp: parseFloat(document.getElementById('newMRP').value),
                 saleRate: parseFloat(document.getElementById('newSaleRate').value),
+                saleRateInclusive: parseFloat(document.getElementById('newSaleRateInclusive').value),
                 expiry: document.getElementById('newExpiry').value,
                 cgst: parseFloat(document.getElementById('newCGST').value),
                 sgst: parseFloat(document.getElementById('newSGST').value)
@@ -1099,20 +1331,20 @@
                 const result = await response.json();
                 if (response.ok) {
                     showAlert(result.message, 'success');
-                    await fetchInventory(); // Refresh inventory after adding a product
-                    await fetchDashboardData(); // Refresh dashboard data
+                    await fetchInventory();
+                    await fetchDashboardData();
                     closeModal('addProductModal');
                 } else {
                     showAlert(result.error, 'danger');
                 }
             } catch (error) {
                 showAlert('Failed to add product.', 'danger');
-                console.error('Error adding product:', error);
             }
         }
 
         function clearProductForm() {
             document.getElementById('newProductName').value = '';
+            document.getElementById('newPackaging').value = packagingTypes[0];
             document.getElementById('newHSN').value = '';
             document.getElementById('newBatch').value = '';
             document.getElementById('newQuantity').value = '';
@@ -1126,12 +1358,7 @@
 
         function updateInventoryTable(data) {
             const tableBody = document.getElementById('inventoryBody');
-            
-            if (!tableBody) {
-                console.error('Inventory table body not found');
-                return;
-            }
-            
+            if (!tableBody) return;
             tableBody.innerHTML = '';
             
             if (!data || data.length === 0) {
@@ -1140,41 +1367,28 @@
             }
 
             const today = new Date();
-            const oneMonth = 30 * 24 * 60 * 60 * 1000;
-
             data.forEach(product => {
                 const row = document.createElement('tr');
                 let rowClass = '';
-                
-                // Check expiry date
-                // Append -01 to compare as a date
                 const expiryDate = new Date(`${product.expiry}-01`);
-                if (expiryDate < today) {
-                    rowClass = 'expired-item';
-                } else if ((expiryDate - today) < oneMonth) {
-                    rowClass = 'low-stock';
+                if (expiryDate < today) rowClass = 'expired-item';
+                if (product.quantity <= (settings.lowStockThreshold || 10)) {
+                    rowClass += ' low-stock';
                 }
-                
-                // Check low stock
-                const lowStockThreshold = parseInt(settings.lowStockThreshold) || 10;
-                if (product.quantity <= lowStockThreshold) {
-                    rowClass = 'low-stock';
-                }
-
-                row.className = rowClass;
+                row.className = rowClass.trim();
                 row.innerHTML = `
                     <td>${product.name || 'N/A'}</td>
+                    <td>${product.packaging || 'N/A'}</td>
                     <td>${product.hsn || 'N/A'}</td>
                     <td>${product.batch || 'N/A'}</td>
                     <td>${product.quantity || 0}</td>
                     <td>₹${parseFloat(product.mrp || 0).toFixed(2)}</td>
-                    <td>₹${parseFloat(product.sale_rate || 0).toFixed(2)}</td>
+                    <td>₹${parseFloat(product.purchase_rate || 0).toFixed(2)}</td>
+                    <td>₹${parseFloat(product.sale_rate_inclusive || 0).toFixed(2)}</td>
                     <td>${product.expiry || 'N/A'}</td>
-                    <td>${product.cgst || 0}%</td>
-                    <td>${product.sgst || 0}%</td>
                     <td>
-                        <button class="btn btn-warning" style="padding: 5px 10px; margin-right: 5px;" onclick="editProduct(${product.id})">✏️</button>
-                        <button class="btn btn-danger" style="padding: 5px 10px;" onclick="deleteProduct(${product.id})">❌</button>
+                        <button class="btn btn-warning btn-sm" style="margin-right: 5px;" onclick="editProduct(${product.id})">✏️</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteProduct(${product.id})">❌</button>
                     </td>
                 `;
                 tableBody.appendChild(row);
@@ -1190,69 +1404,42 @@
                 updateInventoryTable(filtered);
             } catch (error) {
                 showAlert('Failed to search inventory.', 'danger');
-                console.error('Error searching inventory:', error);
             }
         }
         
         function applyExpiryFilter(filterType, element) {
-            // Update button styles
             document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.remove('active'));
             element.classList.add('active');
-            
-            // Apply the actual filter logic
             filterExpiring(filterType);
         }
 
         async function filterExpiring(filterType) {
             if (filterType === 'none') {
-                fetchInventory(); // Show all products
+                fetchInventory();
                 return;
             }
-
             try {
-                const response = await fetch(`${API_BASE_URL}/products`);
-                const allProducts = await response.json();
+                const allProducts = await fetch(`${API_BASE_URL}/products`).then(res => res.json());
                 const today = new Date();
-                const todayStr = today.toISOString().substring(0, 7);
-
                 let filteredProducts = [];
-                let message = '';
-
                 if (filterType === 'expired') {
                     filteredProducts = allProducts.filter(p => p.expiry && new Date(`${p.expiry}-01`) < today);
-                    message = filteredProducts.length > 0 ? 'Showing expired products.' : 'No products have expired.';
-                } else if (filterType === 'thisMonth') {
-                    filteredProducts = allProducts.filter(p => p.expiry && p.expiry === todayStr);
-                    message = filteredProducts.length > 0 ? 'Showing products expiring this month.' : 'No products are expiring this month.';
-                } else if (filterType === 'next2months') {
-                    const twoMonthsFromNow = new Date();
-                    twoMonthsFromNow.setMonth(twoMonthsFromNow.getMonth() + 2);
+                } else {
+                    const months = { 'thisMonth': 1, 'next2months': 2, 'next3months': 3 }[filterType];
+                    const futureDate = new Date();
+                    futureDate.setMonth(futureDate.getMonth() + months);
                     filteredProducts = allProducts.filter(p => {
                         if (!p.expiry) return false;
                         const expiryDate = new Date(`${p.expiry}-01`);
-                        return expiryDate >= today && expiryDate <= twoMonthsFromNow;
+                        return expiryDate >= today && expiryDate <= futureDate;
                     });
-                    message = filteredProducts.length > 0 ? 'Showing products expiring in the next 2 months.' : 'No products are expiring in the next 2 months.';
-                } else if (filterType === 'next3months') {
-                    const threeMonthsFromNow = new Date();
-                    threeMonthsFromNow.setMonth(threeMonthsFromNow.getMonth() + 3);
-                    filteredProducts = allProducts.filter(p => {
-                        if (!p.expiry) return false;
-                        const expiryDate = new Date(`${p.expiry}-01`);
-                        return expiryDate >= today && expiryDate <= threeMonthsFromNow;
-                    });
-                    message = filteredProducts.length > 0 ? 'Showing products expiring in the next 3 months.' : 'No products are expiring in the next 3 months.';
                 }
-                
                 updateInventoryTable(filteredProducts);
-                showAlert(message, 'info');
-
+                showAlert(`Showing products expiring based on filter.`, 'info');
             } catch (error) {
                 showAlert('Failed to filter products.', 'danger');
-                console.error('Error filtering products:', error);
             }
         }
-
 
         async function deleteProduct(id) {
             if (confirm('Are you sure you want to delete this product?')) {
@@ -1268,238 +1455,125 @@
                     }
                 } catch (error) {
                     showAlert('Failed to delete product.', 'danger');
-                    console.error('Error deleting product:', error);
                 }
             }
         }
 
         async function editProduct(id) {
             try {
-                const response = await fetch(`${API_BASE_URL}/products/${id}`);
-                const product = await response.json();
-                if (!response.ok) {
-                    showAlert('Product not found.', 'danger');
-                    return;
-                }
-
+                const product = await fetch(`${API_BASE_URL}/products/${id}`).then(res => res.json());
                 const newQuantity = prompt(`Enter new quantity for ${product.name} (Current: ${product.quantity}):`);
                 if (newQuantity !== null && !isNaN(newQuantity) && parseInt(newQuantity) >= 0) {
-                    const updateResponse = await fetch(`${API_BASE_URL}/products/${id}`, {
+                    const response = await fetch(`${API_BASE_URL}/products/${id}`, {
                         method: 'PUT',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ quantity: parseInt(newQuantity) })
                     });
-                    const updateResult = await updateResponse.json();
-                    if (updateResponse.ok) {
-                        showAlert(updateResult.message, 'success');
+                    const result = await response.json();
+                    if (response.ok) {
+                        showAlert(result.message, 'success');
                         await fetchInventory();
                         await fetchDashboardData();
                     } else {
-                        showAlert(updateResult.error, 'danger');
+                        showAlert(result.error, 'danger');
                     }
                 } else if (newQuantity !== null) {
                     showAlert('Invalid quantity entered!', 'danger');
                 }
             } catch (error) {
                 showAlert('Failed to edit product.', 'danger');
-                console.error('Error editing product:', error);
             }
         }
 
         async function checkLowStock() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/products`);
-                const allProducts = await response.json();
-                const lowStock = allProducts.filter(p => p.quantity <= settings.lowStockThreshold);
-                
-                const message = lowStock.length > 0
-                    ? `The following products are low in stock (below ${settings.lowStockThreshold}): \n\n${lowStock.map(p => `${p.name} (Batch: ${p.batch}, Qty: ${p.quantity})`).join('\n')}`
-                    : 'All products are well stocked.';
-                    
-                showAlert(message, lowStock.length > 0 ? 'warning' : 'success');
-            } catch (error) {
-                showAlert('Failed to check low stock.', 'danger');
-                console.error('Error checking low stock:', error);
-            }
+            const allProducts = await fetch(`${API_BASE_URL}/products`).then(res => res.json());
+            const lowStock = allProducts.filter(p => p.quantity <= settings.lowStockThreshold);
+            const message = lowStock.length > 0
+                ? `Low stock products (<= ${settings.lowStockThreshold}): \n\n${lowStock.map(p => `${p.name} (Qty: ${p.quantity})`).join('\n')}`
+                : 'All products are well stocked.';
+            alert(message);
         }
 
         // Billing Logic
         async function searchProducts() {
             const query = document.getElementById('billProductSearch').value.toLowerCase().trim();
             const dropdown = document.getElementById('billProductDropdown');
-            
-            if (!dropdown) {
-                console.error('Product dropdown not found');
-                return;
-            }
-            
             dropdown.innerHTML = '';
-
             if (query.length < 1) {
                 dropdown.style.display = 'none';
                 return;
             }
-
             try {
-                const response = await fetch(`${API_BASE_URL}/products/search?query=${encodeURIComponent(query)}`);
-                
-                if (!response.ok) {
-                    throw new Error('Failed to search products');
-                }
-                
-                const filteredProducts = await response.json();
-                console.log('Search results:', filteredProducts);
-
+                const filteredProducts = await fetch(`${API_BASE_URL}/products/search?query=${encodeURIComponent(query)}`).then(res => res.json());
                 if (filteredProducts.length > 0) {
                     filteredProducts.forEach(product => {
                         const item = document.createElement('div');
                         item.textContent = `${product.name} - Batch: ${product.batch} (Qty: ${product.quantity})`;
-                        item.style.cursor = 'pointer';
                         item.onclick = () => selectProduct(product);
                         dropdown.appendChild(item);
                     });
                     dropdown.style.display = 'block';
                 } else {
-                    const noResult = document.createElement('div');
-                    noResult.textContent = 'No products found';
-                    noResult.style.padding = '10px';
-                    noResult.style.color = '#666';
-                    dropdown.appendChild(noResult);
+                    dropdown.innerHTML = '<div>No products found</div>';
                     dropdown.style.display = 'block';
                 }
             } catch (error) {
-                console.error('Error searching products:', error);
-                const errorDiv = document.createElement('div');
-                errorDiv.textContent = 'Error searching products';
-                errorDiv.style.padding = '10px';
-                errorDiv.style.color = '#dc3545';
-                dropdown.appendChild(errorDiv);
+                dropdown.innerHTML = '<div>Error searching</div>';
                 dropdown.style.display = 'block';
             }
         }
 
         function showProductDropdown() {
-            const dropdown = document.getElementById('billProductDropdown');
-            searchProducts();
-            dropdown.style.display = 'block';
+            document.getElementById('billProductDropdown').style.display = 'block';
         }
 
-        document.addEventListener('click', function(event) {
-            const selectWrapper = document.querySelector('.select-wrapper');
-            const dropdown = document.getElementById('billProductDropdown');
-            if (!selectWrapper.contains(event.target)) {
-                dropdown.style.display = 'none';
+        document.addEventListener('click', (event) => {
+            if (!document.querySelector('.select-wrapper').contains(event.target)) {
+                document.getElementById('billProductDropdown').style.display = 'none';
             }
         });
 
         function selectProduct(product) {
-            console.log('Selected product:', product);
-
-            // Update form fields
             document.getElementById('billProductSearch').value = `${product.name} - ${product.batch}`;
             document.getElementById('billProductId').value = product.id;
+            document.getElementById('billBatch').value = product.batch;
+            document.getElementById('billExpiry').value = product.expiry;
+            document.getElementById('availableQty').value = product.quantity;
+            document.getElementById('billMRP').value = Number(product.mrp).toFixed(2);
+            document.getElementById('billRate').value = Number(product.sale_rate).toFixed(2);
             document.getElementById('billProductDropdown').style.display = 'none';
-
-            // Update product details
-            document.getElementById('billBatch').value = product.batch || '';
-            document.getElementById('billExpiry').value = product.expiry || '';
-            document.getElementById('availableQty').value = product.quantity || 0;
-            document.getElementById('billMRP').value = parseFloat(product.mrp || 0).toFixed(2);
-            document.getElementById('billRate').value = parseFloat(product.sale_rate || 0).toFixed(2);
-
-            // Set max quantity and clear current quantity
-            const qtyInput = document.getElementById('billQty');
-            qtyInput.max = product.quantity || 0;
-            qtyInput.value = '';
-            qtyInput.focus();
+            document.getElementById('billQty').max = product.quantity;
+            document.getElementById('billQty').focus();
         }
 
         function addToBill() {
-            console.log('addToBill clicked');
-            
-            if (!inventory || inventory.length === 0) {
-                showAlert('Inventory not loaded yet. Please wait a moment and try again.', 'danger');
+            const productId = Number(document.getElementById('billProductId').value);
+            const quantity = Number(document.getElementById('billQty').value);
+            const rate = Number(document.getElementById('billRate').value);
+            const discount = Number(document.getElementById('billDiscount').value);
+
+            if (!productId || !quantity || quantity <= 0 || rate < 0) {
+                showAlert('Please select a product and enter valid details.', 'danger');
                 return;
             }
 
-            const productIdStr = document.getElementById('billProductId').value;
-            const quantityStr = document.getElementById('billQty').value;
-            const rateStr = document.getElementById('billRate').value;
-            const discountStr = document.getElementById('billDiscount').value || '0';
-
-            if (!productIdStr) {
-                showAlert('Please select a product first.', 'danger');
-                return;
-            }
-
-            const productId = Number(productIdStr);
-            const quantity = Number(quantityStr);
-            const rate = Number(rateStr);
-            const discount = Number(discountStr);
-
-            if (isNaN(productId) || isNaN(quantity) || quantity <= 0 || isNaN(rate) || rate <= 0) {
-                showAlert('Please enter valid quantity and rate.', 'danger');
-                return;
-            }
-
-            if (isNaN(discount) || discount < 0 || discount > 100) {
-                showAlert('Please enter a valid discount (0-100%).', 'danger');
-                return;
-            }
-
-            // Find product with proper type coercion
-            const product = inventory.find(p => Number(p.id) === productId);
-            if (!product) {
-                showAlert('Product not found in inventory.', 'danger');
-                console.error('Looking for ID:', productId, 'in inventory:', inventory);
-                return;
-            }
-
-            if (quantity > Number(product.quantity)) {
+            const product = inventory.find(p => p.id === productId);
+            if (quantity > product.quantity) {
                 showAlert(`Not enough stock. Only ${product.quantity} available.`, 'danger');
                 return;
             }
 
-            const existingBillItemIndex = billItems.findIndex(item => Number(item.id) === productId);
-            if (existingBillItemIndex !== -1) {
-                const existingItem = billItems[existingBillItemIndex];
-                const totalQuantityNeeded = existingItem.quantity + quantity;
-
-                if (totalQuantityNeeded > Number(product.quantity)) {
-                    showAlert(`Total quantity (${totalQuantityNeeded}) exceeds available stock (${product.quantity}).`, 'danger');
-                    return;
-                }
-
-                existingItem.quantity = totalQuantityNeeded;
-                existingItem.discount = discount;
-                existingItem.rate = rate;
+            const existing = billItems.find(item => item.id === productId);
+            if (existing) {
+                existing.quantity += quantity;
             } else {
-                // Make sure to include product_id for backend processing
-                billItems.push({
-                    id: Number(product.id),
-                    product_id: Number(product.id), // Add this explicitly
-                    name: product.name,
-                    hsn: product.hsn,
-                    batch: product.batch,
-                    expiry: product.expiry,
-                    mrp: Number(product.mrp) || 0,
-                    rate: rate,
-                    quantity: quantity,
-                    discount: discount,
-                    cgst: Number(product.cgst) || 0,
-                    sgst: Number(product.sgst) || 0
-                });
+                billItems.push({ ...product, quantity, rate, discount });
             }   
 
-            try {
-                updateBillTable();
-                calculateTotals();
-                clearProductInputs();
-                showAlert('Product added to bill successfully!', 'success');
-            } catch (err) {
-                console.error('Error after adding to bill:', err);
-                showAlert('Unexpected error while adding to bill. Check console for details.', 'danger');
-            }
+            updateBillTable();
+            calculateTotals();
+            clearProductInputs();
+            showAlert('Product added to bill!', 'success');
         }
 
         function updateBillTable() {
@@ -1511,27 +1585,18 @@
             }
 
             billItems.forEach((item, index) => {
-                // ensure numeric coercion before formatting
-                const mrpNum = Number(item.mrp) || 0;
-                const rateNum = Number(item.rate) || 0;
-                const qtyNum = Number(item.quantity) || 0;
-                const discountNum = Number(item.discount) || 0;
-                const cgstNum = Number(item.cgst) || 0;
-                const sgstNum = Number(item.sgst) || 0;
-
-                const amount = (rateNum * qtyNum) - ((rateNum * qtyNum) * (discountNum / 100));
-                const totalGST = amount * ((cgstNum + sgstNum) / 100);
-
+                const amount = (item.rate * item.quantity) * (1 - (item.discount / 100));
+                const totalGST = amount * ((Number(item.cgst) + Number(item.sgst)) / 100);
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${item.name}</td>
                     <td>${item.batch}</td>
                     <td>${item.expiry}</td>
-                    <td>₹${mrpNum.toFixed(2)}</td>
-                    <td>₹${rateNum.toFixed(2)}</td>
-                    <td>${qtyNum}</td>
-                    <td>${discountNum}%</td>
-                    <td>${(cgstNum + sgstNum)}%</td>
+                    <td>₹${Number(item.mrp).toFixed(2)}</td>
+                    <td>₹${Number(item.rate).toFixed(2)}</td>
+                    <td>${item.quantity}</td>
+                    <td>${item.discount}%</td>
+                    <td>${(Number(item.cgst) + Number(item.sgst))}%</td>
                     <td>₹${(amount + totalGST).toFixed(2)}</td>
                     <td><button class="btn btn-danger btn-sm" onclick="removeFromBill(${index})">🗑️</button></td>
                 `;
@@ -1549,7 +1614,6 @@
             document.getElementById('availableQty').value = '';
             document.getElementById('billMRP').value = '';
             document.getElementById('billRate').value = '';
-            document.getElementById('billProductDropdown').style.display = 'none';
         }
 
         function removeFromBill(index) {
@@ -1559,83 +1623,51 @@
         }
 
         function calculateTotals() {
-            let subtotal = 0;
-            let totalDiscount = 0;
-            let totalCGST = 0;
-            let totalSGST = 0;
+            let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
 
             billItems.forEach(item => {
                 const itemSubtotal = item.rate * item.quantity;
                 const itemDiscount = itemSubtotal * (item.discount / 100);
-                const itemAmountAfterDiscount = itemSubtotal - itemDiscount;
-                const itemCGST = itemAmountAfterDiscount * (item.cgst / 100);
-                const itemSGST = itemAmountAfterDiscount * (item.sgst / 100);
-
+                const taxable = itemSubtotal - itemDiscount;
                 subtotal += itemSubtotal;
                 totalDiscount += itemDiscount;
-                totalCGST += itemCGST;
-                totalSGST += itemSGST;
+                totalCGST += taxable * (Number(item.cgst) / 100);
+                totalSGST += taxable * (Number(item.sgst) / 100);
             });
 
-            const actualGrandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
-            const roundedGrandTotal = Math.round(actualGrandTotal);
-            const rounding = (roundedGrandTotal - actualGrandTotal).toFixed(2);
+            const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
+            const rounded = Math.round(grandTotal);
+            const rounding = rounded - grandTotal;
 
             document.getElementById('subtotal').textContent = `₹${subtotal.toFixed(2)}`;
             document.getElementById('totalDiscount').textContent = `₹${totalDiscount.toFixed(2)}`;
             document.getElementById('totalCGST').textContent = `₹${totalCGST.toFixed(2)}`;
             document.getElementById('totalSGST').textContent = `₹${totalSGST.toFixed(2)}`;
-
-            // Show rounding row
+            
             let roundingRow = document.getElementById('roundingRow');
             if (!roundingRow) {
-                const row = document.createElement('div');
-                row.className = 'total-row';
-                row.id = 'roundingRow';
-                row.innerHTML = `<span>Rounding:</span><span id="roundingValue"></span>`;
-                document.querySelector('.total-section').insertBefore(row, document.getElementById('grandTotal').parentNode);
+                roundingRow = document.createElement('div');
+                roundingRow.className = 'total-row';
+                roundingRow.id = 'roundingRow';
+                const gtRow = document.getElementById('grandTotal').parentNode;
+                gtRow.parentNode.insertBefore(roundingRow, gtRow);
             }
-            document.getElementById('roundingValue').textContent = `₹${rounding}`;
-
-            // Show rounded grand total
-            document.getElementById('grandTotal').textContent = `₹${roundedGrandTotal}`;
+            roundingRow.innerHTML = `<span>Rounding:</span><span>₹${rounding.toFixed(2)}</span>`;
+            document.getElementById('grandTotal').textContent = `₹${rounded.toFixed(2)}`;
         }
 
 
         async function generateBill() {
-            const patientName = document.getElementById('patientName').value;
-            const patientMobile = document.getElementById('patientMobile').value;
-            const doctorName = document.getElementById('doctorName').value;
-            const grandTotal = parseFloat(document.getElementById('grandTotal').textContent.replace('₹', ''));
-            const subtotal = parseFloat(document.getElementById('subtotal').textContent.replace('₹', ''));
-            const totalDiscount = parseFloat(document.getElementById('totalDiscount').textContent.replace('₹', ''));
-            const totalCGST = parseFloat(document.getElementById('totalCGST').textContent.replace('₹', ''));
-            const totalSGST = parseFloat(document.getElementById('totalSGST').textContent.replace('₹', ''));
-
-            if (!patientName || !patientMobile) {
-                showAlert('Patient Name and Mobile are required to generate a bill.', 'danger');
-                return;
-            }
-
-            if (billItems.length === 0) {
-                showAlert('Please add at least one item to the bill.', 'danger');
+            if (!document.getElementById('patientName').value || !document.getElementById('patientMobile').value || billItems.length === 0) {
+                showAlert('Patient details and at least one item are required.', 'danger');
                 return;
             }
 
             const bill = {
-                billNumber: `BILL-${Date.now()}`,
-                patientName,
-                patientMobile,
-                doctorName,
-                items: billItems.map(item => ({
-                    ...item,
-                    product_id: item.product_id || item.id // Ensure product_id is set
-                })),
-                subtotal,
-                totalDiscount,
-                totalCGST,
-                totalSGST,
-                grandTotal
+                patientName: document.getElementById('patientName').value,
+                patientMobile: document.getElementById('patientMobile').value,
+                doctorName: document.getElementById('doctorName').value,
+                items: billItems.map(item => ({ ...item, product_id: item.id })),
             };
 
             try {
@@ -1647,7 +1679,8 @@
                 const result = await response.json();
                 if (response.ok) {
                     showAlert('Bill generated successfully!', 'success');
-                    displayInvoice(bill);
+                    const savedBill = await fetch(`${API_BASE_URL}/bills/${result.id}`).then(res => res.json());
+                    displayInvoice(savedBill);
                     await fetchInventory();
                     await fetchDashboardData();
                     clearBill();
@@ -1656,142 +1689,55 @@
                 }
             } catch (error) {
                 showAlert('Failed to generate bill.', 'danger');
-                console.error('Error generating bill:', error);
             }
         }
 
         function displayInvoice(bill) {
-            const invoiceContent = document.getElementById('invoiceContent');
-
-            let itemsHtml = bill.items.map(item => {
-                const amount = (item.rate * item.quantity) - ((item.rate * item.quantity) * (item.discount / 100));
-                const totalGST = amount * ((item.cgst + item.sgst) / 100);
-                const itemTotal = amount + totalGST;
-                return `
-                    <tr>
-                        <td>${item.name}</td>
-                        <td>${item.batch}</td>
-                        <td>${item.expiry}</td>
-                        <td>₹${item.mrp.toFixed(2)}</td>
-                        <td>${item.quantity}</td>
-                        <td>₹${item.rate.toFixed(2)}</td>
-                        <td>${item.discount}%</td>
-                        <td>${item.cgst}%</td>
-                        <td>${item.sgst}%</td>
-                        <td>₹${itemTotal.toFixed(2)}</td>
-                    </tr>
-                `;
+            const itemsHtml = bill.items.map(item => {
+                const taxable = (item.rate * item.quantity) * (1 - (item.discount / 100));
+                const gst = taxable * ((Number(item.cgst) + Number(item.sgst)) / 100);
+                return `<tr>
+                    <td>${item.product_name}</td> <td>${item.batch}</td> <td>${item.expiry}</td>
+                    <td>₹${Number(item.mrp).toFixed(2)}</td> <td>${item.quantity}</td> <td>₹${Number(item.rate).toFixed(2)}</td>
+                    <td>${item.discount}%</td> <td>${(Number(item.cgst) + Number(item.sgst))}%</td> <td>₹${(taxable + gst).toFixed(2)}</td>
+                </tr>`;
             }).join('');
 
-            // Rounding calculation
-            const actualGrandTotal = bill.subtotal - bill.totalDiscount + bill.totalCGST + bill.totalSGST;
-            const roundedGrandTotal = Math.round(actualGrandTotal);
-            const rounding = (roundedGrandTotal - actualGrandTotal).toFixed(2);
+            const rounded = Math.round(Number(bill.grand_total));
+            const rounding = rounded - Number(bill.grand_total);
 
-            invoiceContent.innerHTML = `
-                <div class="bill-header">
-                    <h2 class="no-print">Invoice</h2>
-                    <h1>${settings.shopName}</h1>
-                    <p>GST: ${settings.gst} | Ph: ${settings.phone} | ${settings.email}</p>
-                    <p>${settings.address}</p>
-                    <p>Drug License No: ${settings.drugLicense || "D.L No.- RLF20TR2025000281 | RLF21TR2025000273"}</p>
-                </div>
-                
-                <div class="bill-details" style="display: flex; justify-content: space-between;">
-                    <div><strong>Bill No:</strong> ${bill.billNumber}</div>
-                    <div><strong>Date:</strong> ${new Date().toLocaleDateString()}</div>
-                </div>
-                <div class="bill-details" style="display: flex; justify-content: space-between;">
-                    <div><strong>Patient Name:</strong> ${bill.patientName}</div>
-                    <div><strong>Patient Mobile:</strong> ${bill.patientMobile}</div>
-                </div>
-                ${bill.doctorName ? `<div><strong>Doctor Name:</strong> ${bill.doctorName}</div>` : ''}
-
-                <table style="margin-top: 20px;">
-                    <thead>
-                        <tr>
-                            <th>Product</th>
-                            <th>Batch</th>
-                            <th>Exp</th>
-                            <th>MRP</th>
-                            <th>Qty</th>
-                            <th>Rate</th>
-                            <th>Disc %</th>
-                            <th>CGST</th>
-                            <th>SGST</th>
-                            <th>Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${itemsHtml}
-                    </tbody>
-                </table>
-
+            document.getElementById('invoiceContent').innerHTML = `
+                <div class="bill-header"> <h2>Invoice</h2> <h1>${settings.shopName}</h1> <p>GST: ${settings.gst} | Ph: ${settings.phone}</p> <p>${settings.address}</p> </div>
+                <div class="bill-details" style="display: flex; justify-content: space-between;"> <div><strong>Bill No:</strong> ${bill.bill_number}</div> <div><strong>Date:</strong> ${new Date(bill.bill_date).toLocaleDateString()}</div> </div>
+                <div class="bill-details" style="display: flex; justify-content: space-between;"> <div><strong>Patient Name:</strong> ${bill.patient_name}</div> <div><strong>Mobile:</strong> ${bill.patient_mobile}</div> </div>
+                ${bill.doctor_name ? `<div><strong>Doctor Name:</strong> ${bill.doctor_name}</div>` : ''}
+                <table style="margin-top: 20px;"> <thead> <tr> <th>Product</th> <th>Batch</th> <th>Exp</th> <th>MRP</th> <th>Qty</th> <th>Rate</th> <th>Disc %</th> <th>GST</th> <th>Amount</th> </tr> </thead> <tbody> ${itemsHtml} </tbody> </table>
                 <div class="total-section">
-                    <div class="total-row">
-                        <span>Subtotal:</span>
-                        <span>₹${bill.subtotal.toFixed(2)}</span>
-                    </div>
-                    <div class="total-row">
-                        <span>Total Discount:</span>
-                        <span>₹${bill.totalDiscount.toFixed(2)}</span>
-                    </div>
-                    <div class="total-row">
-                        <span>CGST:</span>
-                        <span>₹${bill.totalCGST.toFixed(2)}</span>
-                    </div>
-                    <div class="total-row">
-                        <span>SGST:</span>
-                        <span>₹${bill.totalSGST.toFixed(2)}</span>
-                    </div>
-                    <div class="total-row">
-                        <span>Rounding:</span>
-                        <span>₹${rounding}</span>
-                    </div>
-                    <div class="total-row">
-                        <span>Grand Total:</span>
-                        <span>₹${roundedGrandTotal}</span>
-                    </div>
-                </div>
-
-                <div style="margin-top:20px;">
-                    <p><strong>Pharmacist Name: Ipsita Das</strong></p>
-                </div>
-            `;
-
+                    <div class="total-row"><span>Subtotal:</span><span>₹${Number(bill.subtotal).toFixed(2)}</span></div>
+                    <div class="total-row"><span>Discount:</span><span>₹${Number(bill.total_discount).toFixed(2)}</span></div>
+                    <div class="total-row"><span>CGST:</span><span>₹${Number(bill.total_cgst).toFixed(2)}</span></div>
+                    <div class="total-row"><span>SGST:</span><span>₹${Number(bill.total_sgst).toFixed(2)}</span></div>
+                    <div class="total-row"><span>Rounding:</span><span>₹${rounding.toFixed(2)}</span></div>
+                    <div class="total-row"><span>Grand Total:</span><span>₹${rounded.toFixed(2)}</span></div>
+                </div>`;
             document.getElementById('invoiceModal').classList.add('active');
         }
 
         function printInvoice() {
-            const invoiceContent = document.getElementById('invoiceContent').innerHTML;
-            const originalContent = document.body.innerHTML;
-
-            // Replace body with only invoice
-            document.body.innerHTML = invoiceContent;
-
-            // Print just the invoice
+            const content = document.getElementById('invoiceContent').innerHTML;
+            const original = document.body.innerHTML;
+            document.body.innerHTML = content;
             window.print();
-
-            // Restore original page
-            document.body.innerHTML = originalContent;
-            location.reload(); // reattach scripts/styles if needed
+            document.body.innerHTML = original;
+            location.reload();
         }
-
 
         function clearBill() {
             billItems = [];
             document.getElementById('patientName').value = '';
             document.getElementById('patientMobile').value = '';
             document.getElementById('doctorName').value = '';
-            document.getElementById('billProductSearch').value = '';
-            document.getElementById('billProductId').value = '';
-            document.getElementById('billQty').value = '';
-            document.getElementById('billDiscount').value = '0';
-            document.getElementById('billBatch').value = '';
-            document.getElementById('billExpiry').value = '';
-            document.getElementById('availableQty').value = '';
-            document.getElementById('billMRP').value = '';
-            document.getElementById('billRate').value = '';
+            clearProductInputs();
             updateBillTable();
             calculateTotals();
         }
@@ -1799,200 +1745,97 @@
         // Dashboard & Reporting
         async function fetchDashboardData() {
             try {
-                console.log('Fetching dashboard data...');
-                
-                const [billsResponse, inventoryResponse, settingsResponse] = await Promise.all([
-                    fetch(`${API_BASE_URL}/bills`),
-                    fetch(`${API_BASE_URL}/products`),
-                    fetch(`${API_BASE_URL}/settings`)
+                const [bills, products] = await Promise.all([
+                    fetch(`${API_BASE_URL}/bills`).then(res => res.json()),
+                    fetch(`${API_BASE_URL}/products`).then(res => res.json())
                 ]);
+                const today = new Date().toDateString();
+                const todaySales = bills.filter(b => new Date(b.bill_date).toDateString() === today).reduce((sum, b) => sum + Number(b.grand_total), 0);
+                const totalItems = products.reduce((sum, p) => sum + p.quantity, 0);
+                const lowStockCount = products.filter(p => p.quantity <= (settings.lowStockThreshold || 10)).length;
+                const expiringSoonDate = new Date();
+                expiringSoonDate.setMonth(expiringSoonDate.getMonth() + 1);
+                const expiringCount = products.filter(p => p.expiry && new Date(`${p.expiry}-01`) < expiringSoonDate && new Date(`${p.expiry}-01`) > new Date()).length;
 
-                const allBills = await billsResponse.json();
-                const allProducts = await inventoryResponse.json();
-                const currentSettings = await settingsResponse.json();
-                
-                // Update settings if needed
-                if (currentSettings) {
-                    settings = currentSettings;
-                }
-                
-                // Get today's sales
-                const today = new Date();
-                const todayStr = today.toDateString();
-                const todaySales = allBills
-                    .filter(bill => new Date(bill.bill_date).toDateString() === todayStr)
-                    .reduce((sum, bill) => sum + parseFloat(bill.grand_total || 0), 0);
-                
-                // Get total items
-                const totalItems = allProducts.reduce((sum, product) => sum + (product.quantity || 0), 0);
-
-                // Get low stock and expiring items
-                const lowStockThreshold = parseInt(settings.lowStockThreshold) || 10;
-                const lowStockCount = allProducts.filter(p => (p.quantity || 0) <= lowStockThreshold).length;
-                
-                const oneMonth = 30 * 24 * 60 * 60 * 1000;
-                const expiringCount = allProducts.filter(p => {
-                    if (!p.expiry) return false;
-                    const expiryDate = new Date(`${p.expiry}-01`);
-                    return (expiryDate > today && (expiryDate - today) < oneMonth);
-                }).length;
-
-                // Update dashboard UI
-                const todaySalesEl = document.getElementById('todaySales');
-                const totalItemsEl = document.getElementById('totalItems');
-                const lowStockCountEl = document.getElementById('lowStockCount');
-                const expiringCountEl = document.getElementById('expiringCount');
-                
-                if (todaySalesEl) todaySalesEl.textContent = `₹${todaySales.toFixed(2)}`;
-                if (totalItemsEl) totalItemsEl.textContent = totalItems;
-                if (lowStockCountEl) lowStockCountEl.textContent = lowStockCount;
-                if (expiringCountEl) expiringCountEl.textContent = expiringCount;
-
-                // Update recent transactions
-                updateRecentTransactions(allBills);
-                
+                document.getElementById('todaySales').textContent = `₹${todaySales.toFixed(2)}`;
+                document.getElementById('totalItems').textContent = totalItems;
+                document.getElementById('lowStockCount').textContent = lowStockCount;
+                document.getElementById('expiringCount').textContent = expiringCount;
+                updateRecentTransactions(bills);
             } catch (error) {
-                console.error('Error fetching dashboard data:', error);
                 showAlert('Failed to load dashboard data.', 'danger');
             }
         }
         function updateRecentTransactions(bills) {
-            const recentTransactionsBody = document.getElementById('recentTransactionsBody');
-            if (!recentTransactionsBody) return;
-            
-            recentTransactionsBody.innerHTML = '';
-            
+            const body = document.getElementById('recentTransactionsBody');
+            body.innerHTML = '';
             if (!bills || bills.length === 0) {
-                recentTransactionsBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">No recent transactions</td></tr>';
+                body.innerHTML = '<tr><td colspan="5" style="text-align: center;">No recent transactions</td></tr>';
                 return;
             }
-
-            bills.slice(0, 5).forEach(bill => {
-                const row = document.createElement('tr');
-                row.innerHTML = `
-                    <td>${bill.bill_number || 'N/A'}</td>
-                    <td>${new Date(bill.bill_date).toLocaleDateString()}</td>
-                    <td>${bill.patient_name || 'N/A'}</td>
-                    <td>₹${parseFloat(bill.grand_total || 0).toFixed(2)}</td>
+            bills.slice(0, 5).forEach(b => {
+                body.innerHTML += `<tr>
+                    <td>${b.bill_number}</td> <td>${new Date(b.bill_date).toLocaleDateString()}</td>
+                    <td>${b.patient_name}</td> <td>₹${Number(b.grand_total).toFixed(2)}</td>
                     <td><span style="color: green; font-weight: bold;">Paid</span></td>
-                `;
-                recentTransactionsBody.appendChild(row);
+                </tr>`;
             });
         }
 
         async function generateReport() {
-            const reportType = document.getElementById('reportType').value;
+            const type = document.getElementById('reportType').value;
             const fromDate = document.getElementById('reportFromDate').value;
             const toDate = document.getElementById('reportToDate').value;
-            const reportContent = document.getElementById('reportContent');
-            reportContent.innerHTML = '';
+            const contentDiv = document.getElementById('reportContent');
+            contentDiv.innerHTML = '<h3>Generating report...</h3>';
+
+            if(!fromDate || !toDate) {
+                showAlert('Please select a valid date range.', 'danger');
+                contentDiv.innerHTML = '';
+                return;
+            }
 
             try {
-                const billsResponse = await fetch(`${API_BASE_URL}/bills`);
-                const allBills = await billsResponse.json();
-
-                if (reportType === 'sales') {
-                    const filteredSales = allBills.filter(t => {
-                        const billDate = new Date(t.bill_date);
-                        return billDate >= new Date(fromDate) && billDate <= new Date(toDate);
-                    });
-
-                    let totalSales = filteredSales.reduce((sum, t) => sum + parseFloat(t.grand_total), 0);
-                    
-                    let salesHtml = `<h3>Sales Report from ${fromDate} to ${toDate}</h3>`;
-                    salesHtml += `<p><strong>Total Sales:</strong> ₹${totalSales.toFixed(2)}</p>`;
-                    salesHtml += `<table><thead><tr><th>Bill No</th><th>Date</th><th>Patient</th><th>Amount</th></tr></thead><tbody>`;
-                    if (filteredSales.length === 0) {
-                        salesHtml += `<tr><td colspan="4" style="text-align: center;">No sales in this period.</td></tr>`;
-                    } else {
-                        filteredSales.forEach(t => {
-                            salesHtml += `<tr><td>${t.bill_number}</td><td>${new Date(t.bill_date).toLocaleDateString()}</td><td>${t.patient_name}</td><td>₹${parseFloat(t.grand_total).toFixed(2)}</td></tr>`;
-                        });
-                    }
-                    salesHtml += `</tbody></table>`;
-                    reportContent.innerHTML = salesHtml;
-
-                } else if (reportType === 'gst') {
-                    const filteredBills = allBills.filter(t => {
-                        const billDate = new Date(t.bill_date);
-                        return billDate >= new Date(fromDate) && billDate <= new Date(toDate);
-                    });
-                    
-                    let totalCGST = filteredBills.reduce((sum, t) => sum + parseFloat(t.total_cgst), 0);
-                    let totalSGST = filteredBills.reduce((sum, t) => sum + parseFloat(t.total_sgst), 0);
-
-                    let gstHtml = `<h3>GST Report from ${fromDate} to ${toDate}</h3>`;
-                    gstHtml += `<p><strong>Total CGST Collected:</strong> ₹${totalCGST.toFixed(2)}</p>`;
-                    gstHtml += `<p><strong>Total SGST Collected:</strong> ₹${totalSGST.toFixed(2)}</p>`;
-                    gstHtml += `<table><thead><tr><th>Bill No</th><th>Date</th><th>Taxable Value</th><th>CGST</th><th>SGST</th></tr></thead><tbody>`;
-                    if (filteredBills.length === 0) {
-                        gstHtml += `<tr><td colspan="5" style="text-align: center;">No GST data in this period.</td></tr>`;
-                    } else {
-                        for (const t of filteredBills) {
-                            const itemsResponse = await fetch(`${API_BASE_URL}/bills/${t.id}`);
-                            const billWithItems = await itemsResponse.json();
-                            const taxable = billWithItems.items.reduce((sum, item) => sum + (item.rate * item.quantity) - ((item.rate * item.quantity) * (item.discount / 100)), 0);
-                            gstHtml += `<tr><td>${t.bill_number}</td><td>${new Date(t.bill_date).toLocaleDateString()}</td><td>₹${taxable.toFixed(2)}</td><td>₹${parseFloat(t.total_cgst).toFixed(2)}</td><td>₹${parseFloat(t.total_sgst).toFixed(2)}</td></tr>`;
-                        }
-                    }
-                    gstHtml += `</tbody></table>`;
-                    reportContent.innerHTML = gstHtml;
+                const response = await fetch(`${API_BASE_URL}/reports?type=${type}&fromDate=${fromDate}&toDate=${toDate}`);
+                if (!response.ok) throw new Error(await response.json().then(e => e.error));
+                const data = await response.json();
                 
-                } else if (reportType === 'inventory') {
-                    const inventoryResponse = await fetch(`${API_BASE_URL}/products`);
-                    const allProducts = await inventoryResponse.json();
+                let html = `<h3>${type.charAt(0).toUpperCase() + type.slice(1)} Report from ${fromDate} to ${toDate}</h3>`;
 
-                    let inventoryHtml = `<h3>Current Inventory Report</h3>`;
-                    inventoryHtml += `<table><thead><tr><th>Product Name</th><th>HSN</th><th>Batch</th><th>Quantity</th><th>MRP</th><th>Sale Rate</th><th>Expiry</th><th>CGST %</th><th>SGST %</th></tr></thead><tbody>`;
-                    if (allProducts.length === 0) {
-                        inventoryHtml += `<tr><td colspan="9" style="text-align: center;">No products in inventory.</td></tr>`;
-                    } else {
-                        allProducts.forEach(p => {
-                            inventoryHtml += `<tr><td>${p.name}</td><td>${p.hsn}</td><td>${p.batch}</td><td>${p.quantity}</td><td>₹${p.mrp.toFixed(2)}</td><td>₹${p.sale_rate.toFixed(2)}</td><td>${p.expiry}</td><td>${p.cgst}%</td><td>${p.sgst}%</td></tr>`;
-                        });
-                    }
-                    inventoryHtml += `</tbody></table>`;
-                    reportContent.innerHTML = inventoryHtml;
-
-                } else if (reportType === 'expiry') {
-                    const inventoryResponse = await fetch(`${API_BASE_URL}/products`);
-                    const allProducts = await inventoryResponse.json();
-                    const today = new Date();
-                    const expired = allProducts.filter(p => new Date(`${p.expiry}-01`) < today);
-                    
-                    let expiryHtml = `<h3>Expired Products Report</h3>`;
-                    expiryHtml += `<table><thead><tr><th>Product Name</th><th>Batch</th><th>Quantity</th><th>Expiry Date</th></tr></thead><tbody>`;
-                    if (expired.length === 0) {
-                        expiryHtml += `<tr><td colspan="4" style="text-align: center;">No expired products.</td></tr>`;
-                    } else {
-                        expired.forEach(p => {
-                            expiryHtml += `<tr class="expired-item"><td>${p.name}</td><td>${p.batch}</td><td>${p.quantity}</td><td>${p.expiry}</td></tr>`;
-                        });
-                    }
-                    expiryHtml += `</tbody></table>`;
-                    reportContent.innerHTML = expiryHtml;
+                if (data.length === 0) {
+                    html += `<p>No data found for this period.</p>`;
+                } else {
+                    const headers = Object.keys(data[0]);
+                    html += `<table class="report-table"><thead><tr>${headers.map(h => `<th>${h.replace(/_/g, ' ').toUpperCase()}</th>`).join('')}</tr></thead><tbody>`;
+                    data.forEach(row => {
+                         html += `<tr>${headers.map(h => {
+                             const val = row[h];
+                             let displayVal = val === null || val === undefined ? '' : val;
+                             const isCurrency = typeof val === 'number' && (h.includes('rate') || h.includes('amount') || h.includes('total') || h.includes('mrp') || h.includes('gst'));
+                             if(isCurrency) {
+                                 displayVal = '₹' + val.toFixed(2);
+                             }
+                             return `<td>${displayVal}</td>`;
+                         }).join('')}</tr>`;
+                    });
+                    html += `</tbody></table>`;
                 }
-            } catch (error) {
-                showAlert('Failed to generate report.', 'danger');
-                console.error('Error generating report:', error);
+                contentDiv.innerHTML = html;
+            } catch(error) {
+                showAlert(`Error generating report: ${error.message}`, 'danger');
+                contentDiv.innerHTML = `<p style="color:red;">Could not generate report.</p>`;
             }
         }
-        // ---------------- Bills: Fetch / Show / Edit ----------------
 
+        // Bills: Fetch / Show / Edit
         async function fetchBills() {
-            try {
-                const response = await fetch(`${API_BASE_URL}/bills`);
-                if (!response.ok) throw new Error('Failed to fetch bills');
-                const bills = await response.json();
+             try {
+                const bills = await fetch(`${API_BASE_URL}/bills`).then(res => res.json());
                 updateBillsTable(bills);
             } catch (error) {
-                console.error('Error fetching bills:', error);
-                const billsBody = document.getElementById('billsBody');
-                if (billsBody) billsBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">Error loading bills</td></tr>';
-                showAlert('Failed to fetch bills.', 'danger');
+                showAlert(error.message, 'danger');
             }
         }
-
         function updateBillsTable(bills) {
             const billsBody = document.getElementById('billsBody');
             billsBody.innerHTML = '';
@@ -2004,148 +1847,129 @@
             bills.forEach(bill => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td>${bill.bill_number || bill.billNumber || 'N/A'}</td>
+                    <td>${bill.bill_number}</td>
                     <td>${new Date(bill.bill_date).toLocaleDateString()}</td>
-                    <td>${bill.patient_name || bill.patientName}</td>
-                    <td>₹${parseFloat(bill.grand_total || bill.grandTotal || 0).toFixed(2)}</td>
+                    <td>${bill.patient_name}</td>
+                    <td>₹${parseFloat(bill.grand_total).toFixed(2)}</td>
                     <td>
-                        <button class="btn btn-warning" onclick="viewBill(${bill.id})">✏️ View/Edit</button>
-                        <button class="btn btn-info" onclick="printOldBill(${bill.id})" style="margin-left: 5px;">🖨️ Print</button>
+                        <button class="btn btn-warning btn-sm" onclick="viewBill(${bill.id})">✏️ View/Edit</button>
+                        <button class="btn btn-info btn-sm" onclick="printOldBill(${bill.id})" style="margin-left: 5px;">🖨️ Print</button>
                     </td>
-
                 `;
                 billsBody.appendChild(row);
             });
         }
+        
+        function removeEditedItem(index) {
+            if (!window.currentEditingBill || !window.currentEditingBill.items) return;
+            window.currentEditingBill.items.splice(index, 1);
+            renderEditBillItems();
+        }
+
+        function renderEditBillItems() {
+            let itemsHtml = window.currentEditingBill.items.map((item, i) => `
+                <tr>
+                    <td>${item.product_name}</td>
+                    <td><input type="text" value="${item.batch}" class="edit-batch" data-index="${i}" style="width:100px;"></td>
+                    <td><input type="number" value="${item.quantity}" class="edit-qty" data-index="${i}" style="width:60px;" oninput="recalculateEditedBillTotals()"></td>
+                    <td><input type="number" value="${item.rate}" class="edit-rate" data-index="${i}" step="0.01" style="width:80px;" oninput="recalculateEditedBillTotals()"></td>
+                    <td><input type="number" value="${item.discount}" class="edit-discount" data-index="${i}" step="0.01" style="width:70px;" oninput="recalculateEditedBillTotals()"></td>
+                    <td><button class="btn btn-danger btn-sm" onclick="removeEditedItem(${i})">Remove</button></td>
+                </tr>
+            `).join('');
+            document.getElementById('editBillItemsBody').innerHTML = itemsHtml;
+            recalculateEditedBillTotals();
+        }
+
+        function recalculateEditedBillTotals() {
+            const qtyInputs = document.querySelectorAll('.edit-qty');
+            const rateInputs = document.querySelectorAll('.edit-rate');
+            const discountInputs = document.querySelectorAll('.edit-discount');
+            
+            let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
+
+            window.currentEditingBill.items.forEach((item, i) => {
+                const qty = Number(qtyInputs[i].value);
+                const rate = Number(rateInputs[i].value);
+                const discount = Number(discountInputs[i].value);
+                
+                const itemSubtotal = rate * qty;
+                const itemDiscountAmount = itemSubtotal * (discount / 100);
+                const taxable = itemSubtotal - itemDiscountAmount;
+                
+                subtotal += itemSubtotal;
+                totalDiscount += itemDiscountAmount;
+                totalCGST += taxable * (Number(item.cgst) / 100);
+                totalSGST += taxable * (Number(item.sgst) / 100);
+            });
+
+            const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
+            const rounded = Math.round(grandTotal);
+            
+            document.getElementById('editSubtotal').textContent = `₹${subtotal.toFixed(2)}`;
+            document.getElementById('editDiscount').textContent = `₹${totalDiscount.toFixed(2)}`;
+            document.getElementById('editCgst').textContent = `₹${totalCGST.toFixed(2)}`;
+            document.getElementById('editSgst').textContent = `₹${totalSGST.toFixed(2)}`;
+            document.getElementById('editGrandTotal').textContent = `₹${rounded.toFixed(2)}`;
+        }
 
         async function viewBill(billId) {
             try {
-                const response = await fetch(`${API_BASE_URL}/bills/${billId}`);
-                if (!response.ok) throw new Error('Failed to fetch bill');
-                const bill = await response.json();
-
-                // Build editable rows for each item
-                let itemsHtml = bill.items.map((item, index) => `
-                    <tr>
-                        <td>${item.product_name || item.productName || item.name}</td>
-                        <td>${item.batch || ''}</td>
-                        <td><input type="month" value="${item.expiry || ''}" data-index="${index}" class="edit-expiry" style="width:100px;"></td>
-                        <td>₹${item.mrp ? Number(item.mrp).toFixed(2) : '0.00'}</td>
-                        <td><input type="number" min="1" value="${item.quantity}" data-index="${index}" class="edit-qty" style="width:60px;"></td>
-                        <td><input type="number" min="0" step="0.01" value="${item.rate}" data-index="${index}" class="edit-rate" style="width:80px;"></td>
-                        <td><input type="number" min="0" max="100" value="${item.discount || 0}" data-index="${index}" class="edit-discount" style="width:60px;"></td>
-                        <td>${item.cgst}%</td>
-                        <td>${item.sgst}%</td>
-                        <td>₹${(Number(item.rate) * Number(item.quantity)).toFixed(2)}</td>
-                        <input type="hidden" data-index="${index}" class="edit-mrp" value="${item.mrp || 0}">
-                    </tr>
-                `).join('');
+                const bill = await fetch(`${API_BASE_URL}/bills/${billId}`).then(res => res.json());
+                window.currentEditingBill = bill;
 
                 document.getElementById('editBillContent').innerHTML = `
-                    <p><strong>Bill No:</strong> ${bill.bill_number || bill.billNumber}</p>
-                    <p><strong>Date:</strong> ${new Date(bill.bill_date).toLocaleDateString()}</p>
-                    <p><strong>Patient:</strong> ${bill.patient_name || bill.patientName} | <strong>Mobile:</strong> ${bill.patient_mobile || bill.patientMobile}</p>
+                    <div class="form-grid">
+                        <div class="form-group"> <label>Patient Name</label> <input type="text" id="editPatientName" value="${bill.patient_name}"> </div>
+                        <div class="form-group"> <label>Patient Mobile</label> <input type="text" id="editPatientMobile" value="${bill.patient_mobile}"> </div>
+                        <div class="form-group"> <label>Doctor Name</label> <input type="text" id="editDoctorName" value="${bill.doctor_name || ''}"> </div>
+                    </div>
+                    <p><strong>Bill No:</strong> ${bill.bill_number}</p>
                     <table style="width:100%; margin-top:10px;">
-                        <thead>
-                            <tr>
-                                <th>Product</th>
-                                <th>Batch</th>
-                                <th>Expiry</th>
-                                <th>MRP</th>
-                                <th>Qty</th>
-                                <th>Rate</th>
-                                <th>Discount</th>
-                                <th>CGST</th>
-                                <th>SGST</th>
-                                <th>Amount</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            ${itemsHtml}
-                        </tbody>
+                        <thead> <tr> <th>Product</th> <th>Batch</th> <th>Qty</th> <th>Rate</th> <th>Discount %</th> <th>Action</th> </tr> </thead>
+                        <tbody id="editBillItemsBody"></tbody>
                     </table>
-                `;
-                document.getElementById('editBillModal').classList.add('active');
+                    <div class="total-section" style="margin-top:10px;">
+                         <div class="total-row"><span>Subtotal:</span><span id="editSubtotal"></span></div>
+                         <div class="total-row"><span>Discount:</span><span id="editDiscount"></span></div>
+                         <div class="total-row"><span>CGST:</span><span id="editCgst"></span></div>
+                         <div class="total-row"><span>SGST:</span><span id="editSgst"></span></div>
+                         <div class="total-row"><span>Grand Total:</span><span id="editGrandTotal"></span></div>
+                    </div>`;
 
-                // Keep the bill for saving later
-                window.currentEditingBill = bill;
+                renderEditBillItems();
+                document.getElementById('editBillModal').classList.add('active');
             } catch (error) {
-                console.error('Error viewing bill:', error);
                 showAlert('Failed to fetch bill details.', 'danger');
             }
         }
-
+        
         async function saveEditedBill() {
             if (!window.currentEditingBill) return;
 
-                // Read edited values
-                const qtyInputs = document.querySelectorAll('.edit-qty');
-                const rateInputs = document.querySelectorAll('.edit-rate');
-                const discountInputs = document.querySelectorAll('.edit-discount');
-                const mrpInputs = document.querySelectorAll('.edit-mrp');
-                const expiryInputs = document.querySelectorAll('.edit-expiry');
-
-                qtyInputs.forEach(input => {
-                    const index = Number(input.dataset.index);
-                    window.currentEditingBill.items[index].quantity = Number(input.value);
-                });
-                rateInputs.forEach(input => {
-                    const index = Number(input.dataset.index);
-                    window.currentEditingBill.items[index].rate = Number(input.value);
-                });
-                discountInputs.forEach(input => {
-                    const index = Number(input.dataset.index);
-                    window.currentEditingBill.items[index].discount = Number(input.value);
-                });
-
-                // Preserve MRP and Expiry from hidden fields
-                mrpInputs.forEach(input => {
-                    const index = Number(input.dataset.index);
-                    window.currentEditingBill.items[index].mrp = Number(input.value);
-                });
-                expiryInputs.forEach(input => {
-                    const index = Number(input.dataset.index);
-                    window.currentEditingBill.items[index].expiry = input.value;
-                });
-
-            // Recalculate totals on the client side (server will also re-calc/validate)
-            const items = window.currentEditingBill.items.map(it => {
-                return {
-                    product_id: it.product_id || it.productId || it.id || null,
-                    product_name: it.product_name || it.productName || it.name,
-                    batch: it.batch,
-                    mrp: Number(it.mrp || 0),                   // ✅ Include MRP
-                    expiry: it.expiry || null,                  // ✅ Include Expiry
-                    rate: Number(it.rate),
-                    quantity: Number(it.quantity),
-                    discount: Number(it.discount || 0),
-                    cgst: Number(it.cgst),
-                    sgst: Number(it.sgst)
-                };
-            });
-
-            const subtotal = items.reduce((s, it) => s + (it.rate * it.quantity), 0);
-            const totalDiscount = items.reduce((s, it) => s + ((it.rate * it.quantity) * (it.discount / 100)), 0);
-            const totalCGST = items.reduce((s, it) => s + ((it.rate * it.quantity - (it.rate * it.quantity * (it.discount/100))) * (it.cgst / 100)), 0);
-            const totalSGST = items.reduce((s, it) => s + ((it.rate * it.quantity - (it.rate * it.quantity * (it.discount/100))) * (it.sgst / 100)), 0);
-            const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
+            const qtyInputs = document.querySelectorAll('.edit-qty');
+            const rateInputs = document.querySelectorAll('.edit-rate');
+            const discountInputs = document.querySelectorAll('.edit-discount');
+            const batchInputs = document.querySelectorAll('.edit-batch');
+            
+            const updatedItems = window.currentEditingBill.items.map((item, i) => ({
+                ...item,
+                batch: batchInputs[i].value,
+                quantity: Number(qtyInputs[i].value),
+                rate: Number(rateInputs[i].value),
+                discount: Number(discountInputs[i].value)
+            }));
 
             const payload = {
-                bill_number: window.currentEditingBill.bill_number || window.currentEditingBill.billNumber,
-                bill_date: window.currentEditingBill.bill_date || window.currentEditingBill.billDate || new Date().toISOString(),
-                patient_name: window.currentEditingBill.patient_name || window.currentEditingBill.patientName,
-                patient_mobile: window.currentEditingBill.patient_mobile || window.currentEditingBill.patientMobile,
-                doctor_name: window.currentEditingBill.doctor_name || window.currentEditingBill.doctorName,
-                items: items,
-                subtotal,
-                total_discount: totalDiscount,
-                total_cgst: totalCGST,
-                total_sgst: totalSGST,
-                grand_total: grandTotal
+                ...window.currentEditingBill,
+                patient_name: document.getElementById('editPatientName').value,
+                patient_mobile: document.getElementById('editPatientMobile').value,
+                doctor_name: document.getElementById('editDoctorName').value,
+                items: updatedItems
             };
 
             try {
-                const response = await fetch(`${API_BASE_URL}/bills/${window.currentEditingBill.id}`, {
+                const response = await fetch(`${API_BASE_URL}/bills/${payload.id}`, {
                     method: 'PUT',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
@@ -2154,192 +1978,255 @@
                 if (response.ok) {
                     showAlert('Bill updated successfully!', 'success');
                     closeModal('editBillModal');
-                    fetchBills();
+                    await fetchBills();
                     await fetchInventory();
-                    await fetchDashboardData();
                 } else {
-                    showAlert(result.error || 'Failed to update bill', 'danger');
-                    console.error('Update error result:', result);
+                    showAlert(result.error, 'danger');
                 }
             } catch (error) {
-                console.error('Error saving edited bill:', error);
                 showAlert('Failed to update bill.', 'danger');
             }
         }
 
         async function printOldBill(billId) {
-            // --- FIX #1: Correctly copy all bill properties ---
+             try {
+                const bill = await fetch(`${API_BASE_URL}/bills/${billId}`).then(res => res.json());
+                displayInvoice(bill);
+             } catch(error) {
+                showAlert('Could not fetch bill for printing.', 'danger');
+             }
+        }
+
+        // Purchase Management
+        async function fetchPurchaseBills() {
             try {
-                const response = await fetch(`${API_BASE_URL}/bills/${billId}`);
-                if (!response.ok) throw new Error('Failed to fetch bill');
-                
-                const billFromServer = await response.json();
-
-                const billForDisplay = {
-                    ...billFromServer, 
-                    items: billFromServer.items.map(item => ({
-                        name: item.product_name || item.productName || item.name,
-                        batch: item.batch || '',
-                        expiry: item.expiry || 'N/A',
-                        mrp: parseFloat(item.mrp || 0),
-                        rate: parseFloat(item.rate || 0),
-                        quantity: parseInt(item.quantity || 0),
-                        discount: parseFloat(item.discount || 0),
-                        cgst: parseFloat(item.cgst || 0),
-                        sgst: parseFloat(item.sgst || 0)
-                    }))
-                };
-                
-                displayOldInvoice(billForDisplay);
-
+                const purchaseBills = await fetch(`${API_BASE_URL}/purchases`).then(res => res.json());
+                updatePurchaseBillsTable(purchaseBills);
             } catch (error) {
-                console.error('Error printing old bill:', error);
-                showAlert('Failed to load bill for printing.', 'danger');
+                showAlert(error.message, 'danger');
             }
         }
 
-        function displayOldInvoice(bill) {
-            // --- FIX #2: Use correct snake_case properties from server ---
-            const invoiceContent = document.getElementById('invoiceContent');
-
-            let itemsHtml = bill.items.map(item => {
-                const amount = (item.rate * item.quantity) - ((item.rate * item.quantity) * (item.discount / 100));
-                const totalGST = amount * ((item.cgst + item.sgst) / 100);
-                const itemTotal = amount + totalGST;
-                return `
-                    <tr>
-                        <td>${item.name}</td>
-                        <td>${item.batch}</td>
-                        <td>${item.expiry}</td>
-                        <td>₹${item.mrp.toFixed(2)}</td>
-                        <td>${item.quantity}</td>
-                        <td>₹${item.rate.toFixed(2)}</td>
-                        <td>${item.discount}%</td>
-                        <td>${item.cgst}%</td>
-                        <td>${item.sgst}%</td>
-                        <td>₹${itemTotal.toFixed(2)}</td>
-                    </tr>
+        function updatePurchaseBillsTable(bills) {
+            const tableBody = document.getElementById('purchaseBillsBody');
+            tableBody.innerHTML = '';
+            if (!bills || bills.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No purchase bills found</td></tr>';
+                return;
+            }
+            bills.forEach(bill => {
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${bill.bill_number}</td> <td>${bill.supplier_name}</td>
+                    <td>${new Date(bill.bill_date).toLocaleDateString('en-GB')}</td> <td>${bill.tax_type}</td>
+                    <td>₹${Number(bill.total_amount).toFixed(2)}</td>
+                    <td><button class="btn btn-info btn-sm" onclick="viewPurchaseBill(${bill.id})">👁️ View</button></td>
                 `;
-            }).join('');
-            
-            // Use snake_case properties that come from the server
-            const subtotal = Number(bill.subtotal || 0);
-            const total_discount = Number(bill.total_discount || 0);
-            const total_cgst = Number(bill.total_cgst || 0);
-            const total_sgst = Number(bill.total_sgst || 0);
-
-            const actualGrandTotal = subtotal - total_discount + total_cgst + total_sgst;
-            const roundedGrandTotal = Math.round(actualGrandTotal);
-            const rounding = (roundedGrandTotal - actualGrandTotal).toFixed(2);
-            
-            const billDate = new Date(bill.bill_date);
-            const formattedDate = billDate.toLocaleDateString('en-GB'); // dd/mm/yyyy
-
-            invoiceContent.innerHTML = `
-                <div class="bill-header">
-                    <h2 class="no-print">Invoice</h2>
-                    <h1>${settings.shopName || 'Genericart Medicine Store'}</h1>
-                    <p>GST: ${settings.gst || 'N/A'} | Ph: ${settings.phone || 'N/A'} | ${settings.email || 'N/A'}</p>
-                    <p>${settings.address || 'N/A'}</p>
-                    <p>Drug License No: ${settings.drugLicense || "D.L No.- RLF20TR2025000281 | RLF21TR2025000273"}</p>
-                </div>
-                
-                <div class="bill-details" style="display: flex; justify-content: space-between;">
-                    <div><strong>Bill No:</strong> ${bill.bill_number}</div>
-                    <div><strong>Date:</strong> ${formattedDate}</div>
-                </div>
-                <div class="bill-details" style="display: flex; justify-content: space-between;">
-                    <div><strong>Patient Name:</strong> ${bill.patient_name}</div>
-                    <div><strong>Patient Mobile:</strong> ${bill.patient_mobile}</div>
-                </div>
-                ${bill.doctor_name ? `<div><strong>Doctor Name:</strong> ${bill.doctor_name}</div>` : ''}
-
-                <table style="margin-top: 20px;">
-                    <thead>
-                        <tr>
-                            <th>Product</th>
-                            <th>Batch</th>
-                            <th>Exp</th>
-                            <th>MRP</th>
-                            <th>Qty</th>
-                            <th>Rate</th>
-                            <th>Disc %</th>
-                            <th>CGST</th>
-                            <th>SGST</th>
-                            <th>Amount</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${itemsHtml}
-                    </tbody>
-                </table>
-
-                <div class="total-section">
-                    <div class="total-row">
-                        <span>Subtotal:</span>
-                        <span>₹${subtotal.toFixed(2)}</span>
-                    </div>
-                    <div class="total-row">
-                        <span>Total Discount:</span>
-                        <span>₹${total_discount.toFixed(2)}</span>
-                    </div>
-                    <div class="total-row">
-                        <span>CGST:</span>
-                        <span>₹${total_cgst.toFixed(2)}</span>
-                    </div>
-                    <div class="total-row">
-                        <span>SGST:</span>
-                        <span>₹${total_sgst.toFixed(2)}</span>
-                    </div>
-                    <div class="total-row">
-                        <span>Rounding:</span>
-                        <span>₹${rounding}</span>
-                    </div>
-                    <div class="total-row">
-                        <span>Grand Total:</span>
-                        <span>₹${roundedGrandTotal}</span>
-                    </div>
-                </div>
-
-                <div style="margin-top:20px;">
-                    <p><strong>Pharmacist Name: Ipsita Das</strong></p>
-                </div>
-            `;
-
-            document.getElementById('invoiceModal').classList.add('active');
+                tableBody.appendChild(row);
+            });
         }
-        // ---------------- end Bills feature ----------------
 
+        function showAddPurchaseModal() {
+            purchaseBillItems = [];
+            document.getElementById('addPurchaseModal').classList.add('active');
+            document.getElementById('purchaseSupplierName').value = '';
+            document.getElementById('purchaseBillNumber').value = '';
+            document.getElementById('purchaseBillDate').valueAsDate = new Date();
+            clearPurchaseProductForm();
+            updatePurchaseItemsTable();
+            calculatePurchaseTotal();
+        }
 
+        function clearPurchaseProductForm() {
+            document.getElementById('purchaseProductName').value = '';
+            document.getElementById('purchasePackaging').value = packagingTypes[0];
+            document.getElementById('purchaseHSN').value = '';
+            document.getElementById('purchaseBatch').value = '';
+            document.getElementById('purchaseQty').value = '';
+            document.getElementById('purchaseMRP').value = '';
+            document.getElementById('purchaseRate').value = '';
+            document.getElementById('purchaseGstPercent').value = '12';
+            document.getElementById('purchaseDiscount').value = '0';
+            document.getElementById('purchaseSaleRateIncl').value = '';
+            document.getElementById('purchaseSaleGstPercent').value = '12';
+            document.getElementById('purchaseSaleRateExcl').value = '';
+            document.getElementById('purchaseExpiry').value = '';
+        }
+        
+        function calculatePurchaseSaleExclusiveRate(){
+             const inclRate = parseFloat(document.getElementById('purchaseSaleRateIncl').value) || 0;
+             const saleGst = parseFloat(document.getElementById('purchaseSaleGstPercent').value) || 0;
+             const exclRateEl = document.getElementById('purchaseSaleRateExcl');
+             if(inclRate > 0 && saleGst > 0) {
+                 exclRateEl.value = (inclRate / (1 + (saleGst/100))).toFixed(2);
+             } else {
+                 exclRateEl.value = '';
+             }
+        }
+
+        function addProductToPurchaseBill() {
+            const purchaseTaxType = document.querySelector('input[name="purchaseTaxType"]:checked').value;
+            const purchaseGst = parseFloat(document.getElementById('purchaseGstPercent').value) || 0;
+            const saleGst = parseFloat(document.getElementById('purchaseSaleGstPercent').value) || 0;
+            
+            const item = {
+                productName: document.getElementById('purchaseProductName').value,
+                packaging: document.getElementById('purchasePackaging').value,
+                hsn: document.getElementById('purchaseHSN').value,
+                batch: document.getElementById('purchaseBatch').value,
+                quantity: parseInt(document.getElementById('purchaseQty').value),
+                mrp: parseFloat(document.getElementById('purchaseMRP').value),
+                purchaseRate: parseFloat(document.getElementById('purchaseRate').value),
+                discount: parseFloat(document.getElementById('purchaseDiscount').value),
+                expiry: document.getElementById('purchaseExpiry').value,
+                saleRate: parseFloat(document.getElementById('purchaseSaleRateExcl').value),
+                saleRateIncl: parseFloat(document.getElementById('purchaseSaleRateIncl').value),
+                saleCgst: saleGst / 2,
+                saleSgst: saleGst / 2,
+                cgst: purchaseTaxType === 'CSGST' ? purchaseGst / 2 : 0,
+                sgst: purchaseTaxType === 'CSGST' ? purchaseGst / 2 : 0,
+                igst: purchaseTaxType === 'IGST' ? purchaseGst : 0,
+            };
+            
+            if (!item.productName || !item.batch || isNaN(item.quantity) || isNaN(item.purchaseRate) || isNaN(item.saleRate)) {
+                 showAlert('Please fill all required product fields (*).', 'danger');
+                 return;
+            }
+
+            const baseAmount = item.purchaseRate * item.quantity;
+            const discountedAmount = baseAmount * (1 - (item.discount / 100));
+            const gstAmount = discountedAmount * (purchaseGst / 100);
+            item.amount = discountedAmount + gstAmount;
+            
+            purchaseBillItems.push(item);
+            updatePurchaseItemsTable();
+            calculatePurchaseTotal();
+            clearPurchaseProductForm();
+            document.getElementById('purchaseProductName').focus();
+        }
+
+        function updatePurchaseItemsTable() {
+            const tableBody = document.getElementById('purchaseItemsBody');
+            tableBody.innerHTML = '';
+            if (purchaseBillItems.length === 0) {
+                tableBody.innerHTML = '<tr><td colspan="8" style="text-align: center;">No items added</td></tr>';
+                return;
+            }
+            purchaseBillItems.forEach((item, index) => {
+                const gstText = item.igst > 0 ? `${item.igst}% (IGST)` : `${item.cgst + item.sgst}% (C/SGST)`;
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${item.productName}</td> <td>${item.batch}</td> <td>${item.quantity}</td>
+                    <td>₹${item.purchaseRate.toFixed(2)}</td> <td>${item.discount.toFixed(2)}%</td>
+                    <td>${gstText}</td> <td>₹${item.amount.toFixed(2)}</td>
+                    <td><button class="btn btn-danger btn-sm" onclick="removeProductFromPurchase(${index})">🗑️</button></td>
+                `;
+                tableBody.appendChild(row);
+            });
+        }
+
+        function removeProductFromPurchase(index) {
+            purchaseBillItems.splice(index, 1);
+            updatePurchaseItemsTable();
+            calculatePurchaseTotal();
+        }
+
+        function calculatePurchaseTotal() {
+            const total = purchaseBillItems.reduce((sum, item) => sum + item.amount, 0);
+            const roundedTotal = Math.round(total);
+            const rounding = roundedTotal - total;
+
+            document.getElementById('purchaseTotalAmount').textContent = `₹${total.toFixed(2)}`;
+            document.getElementById('purchaseRoundingAmount').textContent = `₹${rounding.toFixed(2)}`;
+            document.getElementById('purchaseGrandTotal').textContent = `₹${roundedTotal.toFixed(2)}`;
+        }
+
+        async function savePurchaseBill() {
+            const purchaseData = {
+                supplierName: document.getElementById('purchaseSupplierName').value,
+                billNumber: document.getElementById('purchaseBillNumber').value,
+                billDate: document.getElementById('purchaseBillDate').value,
+                taxType: document.querySelector('input[name="purchaseTaxType"]:checked').value,
+                totalAmount: purchaseBillItems.reduce((sum, item) => sum + item.amount, 0),
+                items: purchaseBillItems
+            };
+
+            if (!purchaseData.supplierName || !purchaseData.billNumber || !purchaseData.billDate || purchaseData.items.length === 0) {
+                showAlert('Please fill supplier details and add at least one product.', 'danger');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/purchases`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(purchaseData)
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    showAlert(result.message, 'success');
+                    closeModal('addPurchaseModal');
+                    await fetchPurchaseBills();
+                    await fetchInventory(); 
+                } else {
+                    showAlert(result.error, 'danger');
+                }
+            } catch (error) {
+                showAlert('Failed to save purchase bill.', 'danger');
+            }
+        }
+
+        async function viewPurchaseBill(id) {
+            try {
+                const bill = await fetch(`${API_BASE_URL}/purchases/${id}`).then(res => res.json());
+                const itemsHtml = bill.items.map(item => `
+                    <tr>
+                        <td>${item.product_name}</td> <td>${item.packaging || ''}</td> <td>${item.batch}</td>
+                        <td>${item.quantity}</td> <td>₹${Number(item.purchase_rate).toFixed(2)}</td> <td>${item.discount || 0}%</td>
+                        <td>${item.igst > 0 ? item.igst + '% (IGST)' : (item.cgst + item.sgst) + '%'}</td>
+                        <td>₹${Number(item.amount).toFixed(2)}</td>
+                    </tr>
+                `).join('');
+
+                document.getElementById('viewPurchaseContent').innerHTML = `
+                    <p><strong>Supplier:</strong> ${bill.supplier_name}</p>
+                    <p><strong>Bill No:</strong> ${bill.bill_number}</p>
+                    <p><strong>Date:</strong> ${new Date(bill.bill_date).toLocaleDateString('en-GB')}</p>
+                    <p><strong>Tax Type:</strong> ${bill.tax_type}</p>
+                    <h4 style="margin-top:20px;">Items</h4>
+                    <table> <thead> <tr> <th>Product</th> <th>Pkg</th> <th>Batch</th> <th>Qty</th> <th>Rate</th> <th>Disc</th> <th>GST</th> <th>Amount</th> </tr> </thead> <tbody>${itemsHtml}</tbody> </table>
+                    <h3 style="text-align:right; margin-top:10px;">Total: ₹${Number(bill.total_amount).toFixed(2)}</h3>
+                `;
+                document.getElementById('viewPurchaseModal').classList.add('active');
+            } catch (error) {
+                showAlert(error.message, 'danger');
+            }
+        }
+        
+        // Helper Functions & Customer Management (unchanged)
         function setTodayDate() {
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('reportFromDate').value = today;
             document.getElementById('reportToDate').value = today;
         }
-
-        // Helper Functions
         function showAlert(message, type) {
+            const container = document.getElementById('alert-container');
             const alertDiv = document.createElement('div');
             alertDiv.className = `alert alert-${type}`;
             alertDiv.textContent = message;
-            document.querySelector('.content').prepend(alertDiv);
+            container.appendChild(alertDiv);
             setTimeout(() => {
                 alertDiv.remove();
             }, 5000);
         }
-
-        // Customer Management
         async function fetchCustomers() {
             try {
                 const response = await fetch(`${API_BASE_URL}/customers`);
-                const customers = await response.json();
-                updateCustomersTable(customers);
+                updateCustomersTable(await response.json());
             } catch (error) {
-                console.error('Error fetching customers:', error);
                 showAlert('Failed to load customers.', 'danger');
             }
         }
-
         function updateCustomersTable(data) {
             const tableBody = document.getElementById('customersBody');
             tableBody.innerHTML = '';
@@ -2347,7 +2234,6 @@
                 tableBody.innerHTML = '<tr><td colspan="5" style="text-align: center;">No customers found</td></tr>';
                 return;
             }
-
             data.forEach(customer => {
                 const row = document.createElement('tr');
                 row.innerHTML = `
@@ -2356,46 +2242,35 @@
                     <td>${customer.mobile || 'N/A'}</td>
                     <td>${customer.doctor_name || 'N/A'}</td>
                     <td>
-                        <button class="btn btn-warning" style="padding: 5px 10px;" onclick="showEditCustomerModal(${customer.id})">✏️</button>
-                        <button class="btn btn-danger" style="padding: 5px 10px;" onclick="deleteCustomer(${customer.id})">❌</button>
+                        <button class="btn btn-warning btn-sm" onclick="showEditCustomerModal(${customer.id})">✏️</button>
+                        <button class="btn btn-danger btn-sm" onclick="deleteCustomer(${customer.id})">❌</button>
                     </td>
                 `;
                 tableBody.appendChild(row);
             });
         }
-
         async function searchCustomers() {
             const query = document.getElementById('customerSearch').value.toLowerCase();
             try {
                 const response = await fetch(`${API_BASE_URL}/customers/search?query=${query}`);
-                const filtered = await response.json();
-                updateCustomersTable(filtered);
+                updateCustomersTable(await response.json());
             } catch (error) {
                 showAlert('Failed to search customers.', 'danger');
-                console.error('Error searching customers:', error);
             }
         }
-        
         async function showEditCustomerModal(id) {
             try {
                 const response = await fetch(`${API_BASE_URL}/customers/${id}`);
-                if (!response.ok) {
-                    throw new Error('Customer not found');
-                }
                 const customer = await response.json();
-                
                 document.getElementById('editCustomerId').value = customer.id;
                 document.getElementById('editCustomerName').value = customer.name;
                 document.getElementById('editCustomerMobile').value = customer.mobile;
                 document.getElementById('editCustomerDoctorName').value = customer.doctor_name || '';
-                
                 document.getElementById('editCustomerModal').classList.add('active');
             } catch (error) {
                 showAlert(error.message, 'danger');
-                console.error('Error fetching customer for edit:', error);
             }
         }
-
         async function updateCustomer() {
             const id = document.getElementById('editCustomerId').value;
             const customer = {
@@ -2403,12 +2278,6 @@
                 mobile: document.getElementById('editCustomerMobile').value,
                 doctor_name: document.getElementById('editCustomerDoctorName').value
             };
-
-            if (!customer.name || !customer.mobile) {
-                showAlert('Please fill all required fields!', 'danger');
-                return;
-            }
-
             try {
                 const response = await fetch(`${API_BASE_URL}/customers/${id}`, {
                     method: 'PUT',
@@ -2418,51 +2287,42 @@
                 const result = await response.json();
                 if (response.ok) {
                     showAlert(result.message, 'success');
-                    await fetchCustomers();
+                    fetchCustomers();
                     closeModal('editCustomerModal');
                 } else {
                     showAlert(result.error, 'danger');
                 }
             } catch (error) {
                 showAlert('Failed to update customer.', 'danger');
-                console.error('Error updating customer:', error);
             }
         }
-
         async function deleteCustomer(id) {
-            if (confirm('Are you sure you want to delete this customer? This will not affect existing bills.')) {
+            if (confirm('Are you sure you want to delete this customer?')) {
                 try {
                     const response = await fetch(`${API_BASE_URL}/customers/${id}`, { method: 'DELETE' });
                     const result = await response.json();
                     if (response.ok) {
                         showAlert(result.message, 'success');
-                        await fetchCustomers();
+                        fetchCustomers();
                     } else {
                         showAlert(result.error, 'danger');
                     }
                 } catch (error) {
                     showAlert('Failed to delete customer.', 'danger');
-                    console.error('Error deleting customer:', error);
                 }
             }
         }
-
         async function searchCustomer() {
-            const nameQuery = document.getElementById('patientName').value.trim();
-            const mobileQuery = document.getElementById('patientMobile').value.trim();
+            const query = document.getElementById('patientName').value.trim() || document.getElementById('patientMobile').value.trim();
             const dropdown = document.getElementById('patientNameDropdown');
             dropdown.innerHTML = '';
-
-            const query = nameQuery || mobileQuery;
             if (query.length < 2) {
                 dropdown.style.display = 'none';
                 return;
             }
-
             try {
-                const response = await fetch(`${API_BASE_URL}/customers/search?query=${encodeURIComponent(query)}`);
+                const response = await fetch(`${API_BASE_URL}/customers/search?query=${query}`);
                 const customers = await response.json();
-
                 if (customers.length > 0) {
                     customers.forEach(customer => {
                         const item = document.createElement('div');
@@ -2476,25 +2336,14 @@
                 }
             } catch (error) {
                 console.error('Error searching customers:', error);
-                dropdown.style.display = 'none';
             }
         }
-
         function selectCustomer(customer) {
             document.getElementById('patientName').value = customer.name;
             document.getElementById('patientMobile').value = customer.mobile;
             document.getElementById('doctorName').value = customer.doctor_name || '';
             document.getElementById('patientNameDropdown').style.display = 'none';
         }
-
-        document.addEventListener('click', function(event) {
-            const nameInput = document.getElementById('patientName');
-            const mobileInput = document.getElementById('patientMobile');
-            const dropdown = document.getElementById('patientNameDropdown');
-            if (nameInput && mobileInput && dropdown && !nameInput.contains(event.target) && !mobileInput.contains(event.target)) {
-                dropdown.style.display = 'none';
-            }
-        });
     </script>
 </body>
 </html>

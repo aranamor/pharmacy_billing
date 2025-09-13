@@ -53,20 +53,7 @@ async function query(sql, params = []) {
 app.get('/api/products', async (req, res) => {
     try {
         const rows = await query('SELECT * FROM products ORDER BY id DESC');
-        // Normalize field names to align with front-end usage
-        const products = rows.map(r => ({
-            id: r.id,
-            name: r.name,
-            hsn: r.hsn,
-            batch: r.batch,
-            quantity: r.quantity,
-            mrp: Number(r.mrp),
-            sale_rate: Number(r.sale_rate || r.sale_rate), // if your schema uses sale_rate
-            expiry: r.expiry || null, // No need for date conversion, it's already a string
-            cgst: Number(r.cgst),
-            sgst: Number(r.sgst)
-        }));
-        res.json(products);
+        res.json(rows);
     } catch (err) {
         console.error('GET /api/products error:', err);
         res.status(500).json({ error: 'Failed to fetch products' });
@@ -77,12 +64,12 @@ app.get('/api/products/search', async (req, res) => {
     try {
         const q = (req.query.query || '').trim();
         if (!q) {
-            const rows = await query('SELECT * FROM products ORDER BY id DESC LIMIT 50');
+            const rows = await query('SELECT * FROM products WHERE quantity > 0 ORDER BY id DESC LIMIT 50');
             return res.json(rows);
         }
         const like = `%${q}%`;
         const rows = await query(
-            `SELECT * FROM products WHERE name LIKE ? OR batch LIKE ? OR hsn LIKE ? ORDER BY id DESC LIMIT 50`,
+            `SELECT * FROM products WHERE (name LIKE ? OR batch LIKE ? OR hsn LIKE ?) AND quantity > 0 ORDER BY id DESC LIMIT 50`,
             [like, like, like]
         );
         res.json(rows);
@@ -106,11 +93,10 @@ app.get('/api/products/:id', async (req, res) => {
 
 app.post('/api/products', async (req, res) => {
     try {
-        const { name, hsn, batch, quantity, mrp, saleRate, sale_rate, expiry, cgst, sgst } = req.body;
-        const saleRateToUse = saleRate !== undefined ? saleRate : sale_rate;
+        const { name, hsn, batch, quantity, packaging, mrp, saleRate, saleRateInclusive, expiry, cgst, sgst } = req.body;
         const result = await query(
-            `INSERT INTO products (name, hsn, batch, quantity, mrp, sale_rate, expiry, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [name, hsn, batch, Number(quantity || 0), Number(mrp || 0), Number(saleRateToUse || 0), expiry, Number(cgst || 0), Number(sgst || 0)]
+            `INSERT INTO products (name, hsn, batch, quantity, packaging, mrp, purchase_rate, sale_rate, sale_rate_inclusive, expiry, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [name, hsn, batch, Number(quantity || 0), packaging, Number(mrp || 0), 0, Number(saleRate || 0), Number(saleRateInclusive || 0), expiry, Number(cgst || 0), Number(sgst || 0)]
         );
         res.json({ message: 'Product added', id: result.insertId });
     } catch (err) {
@@ -129,7 +115,7 @@ app.put('/api/products/:id', async (req, res) => {
         const updates = req.body;
         const fields = [];
         const params = [];
-        for (const k of ['name','hsn','batch','quantity','mrp','sale_rate','expiry','cgst','sgst']) {
+        for (const k of ['name','hsn','batch','quantity','packaging','mrp','purchase_rate','sale_rate', 'sale_rate_inclusive','expiry','cgst','sgst']) {
             if (updates[k] !== undefined) {
                 fields.push(`${k} = ?`);
                 params.push(updates[k]);
@@ -157,6 +143,7 @@ app.delete('/api/products/:id', async (req, res) => {
 });
 
 // ---------- CUSTOMERS ----------
+// ... (customer routes are unchanged) ...
 app.get('/api/customers', async (req, res) => {
     try {
         const rows = await query('SELECT * FROM customers ORDER BY name ASC');
@@ -270,7 +257,9 @@ app.delete('/api/customers/:id', async (req, res) => {
     }
 });
 
+
 // ---------- SETTINGS ----------
+// ... (settings routes are unchanged) ...
 app.get('/api/settings', async (req, res) => {
     try {
         const rows = await query('SELECT * FROM settings');
@@ -304,26 +293,13 @@ app.post('/api/settings', async (req, res) => {
     }
 });
 
-// ---------- BILLS ----------
+
+// ---------- BILLS (SALES) ----------
 // List bills
 app.get('/api/bills', async (req, res) => {
     try {
         const rows = await query('SELECT * FROM bills ORDER BY id DESC');
-        // Provide fields in structure front-end expects
-        const bills = rows.map(b => ({
-            id: b.id,
-            bill_number: b.bill_number,
-            bill_date: b.bill_date,
-            patient_name: b.patient_name,
-            patient_mobile: b.patient_mobile,
-            doctor_name: b.doctor_name,
-            subtotal: Number(b.subtotal),
-            total_discount: Number(b.total_discount),
-            total_cgst: Number(b.total_cgst),
-            total_sgst: Number(b.total_sgst),
-            grand_total: Number(b.grand_total)
-        }));
-        res.json(bills);
+        res.json(rows);
     } catch (err) {
         console.error('GET /api/bills', err);
         res.status(500).json({ error: 'Failed to list bills' });
@@ -343,37 +319,8 @@ app.get('/api/bills/:id', async (req, res) => {
         const bill = bRows[0];
         const [items] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ?', [billId]);
         
-        // Map items to expected front-end shape with proper MRP and Expiry handling
-        const mappedItems = items.map(it => ({
-            id: it.id,
-            bill_id: it.bill_id,
-            product_id: it.product_id,
-            product_name: it.product_name,
-            batch: it.batch || '',
-            mrp: it.mrp ? Number(it.mrp) : 0,  // Ensure MRP is properly converted
-            rate: Number(it.rate || 0),
-            quantity: Number(it.quantity || 0),
-            expiry: it.expiry || null,  // Expiry is now a string, no conversion needed
-            discount: Number(it.discount || 0),
-            cgst: Number(it.cgst || 0),
-            sgst: Number(it.sgst || 0)
-        }));
-        
         conn.release();
-        res.json({
-            id: bill.id,
-            bill_number: bill.bill_number,
-            bill_date: bill.bill_date,
-            patient_name: bill.patient_name,
-            patient_mobile: bill.patient_mobile,
-            doctor_name: bill.doctor_name,
-            subtotal: Number(bill.subtotal),
-            total_discount: Number(bill.total_discount),
-            total_cgst: Number(bill.total_cgst),
-            total_sgst: Number(bill.total_sgst),
-            grand_total: Number(bill.grand_total),
-            items: mappedItems
-        });
+        res.json({ ...bill, items });
     } catch (err) {
         conn.release();
         console.error('GET /api/bills/:id', err);
@@ -386,46 +333,28 @@ app.post('/api/bills', async (req, res) => {
     const conn = await pool.getConnection();
     try {
         const body = req.body;
-        // Accept either camelCase or snake_case
-        const billNumber = body.billNumber || body.bill_number || `BILL-${Date.now()}`;
-        const billDate = body.bill_date || body.billDate || new Date();
-        const patientName = body.patientName || body.patient_name;
-        const patientMobile = body.patientMobile || body.patient_mobile;
-        const doctorName = body.doctorName || body.doctor_name || null;
-        const items = body.items || [];
+        const billNumber = body.billNumber || `BILL-${Date.now()}`;
+        const billDate = body.billDate || new Date();
+        const { patientName, patientMobile, doctorName, items } = body;
 
-        // --- NEW: Customer handling logic ---
         let customerId = null;
         if (patientMobile) {
-            const [existingCustomer] = await conn.query('SELECT id FROM customers WHERE mobile = ? LIMIT 1', [patientMobile]);
-            if (existingCustomer.length > 0) {
-                customerId = existingCustomer[0].id;
+            const [existing] = await conn.query('SELECT id FROM customers WHERE mobile = ? LIMIT 1', [patientMobile]);
+            if (existing.length > 0) {
+                customerId = existing[0].id;
             } else {
-                const [newCustomer] = await conn.query(
-                    `INSERT INTO customers (name, mobile, doctor_name) VALUES (?, ?, ?)`,
-                    [patientName, patientMobile, doctorName]
-                );
+                const [newCustomer] = await conn.query('INSERT INTO customers (name, mobile, doctor_name) VALUES (?, ?, ?)', [patientName, patientMobile, doctorName]);
                 customerId = newCustomer.insertId;
             }
         }
-        // --- END NEW: Customer handling logic ---
 
-        // Recalculate server-side to ensure correctness
         let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
         for (const it of items) {
-            const rate = Number(it.rate || it.sale_rate || 0);
-            const qty = Number(it.quantity || 0);
-            const discount = Number(it.discount || 0);
-            const cgst = Number(it.cgst || 0);
-            const sgst = Number(it.sgst || 0);
-
-            const itemSubtotal = rate * qty;
-            const itemDiscount = itemSubtotal * (discount / 100);
-            const taxable = itemSubtotal - itemDiscount;
-            subtotal += itemSubtotal;
-            totalDiscount += itemDiscount;
-            totalCGST += taxable * (cgst / 100);
-            totalSGST += taxable * (sgst / 100);
+            const taxable = (it.rate * it.quantity) * (1 - (it.discount / 100));
+            subtotal += it.rate * it.quantity;
+            totalDiscount += (it.rate * it.quantity) * (it.discount / 100);
+            totalCGST += taxable * (it.cgst / 100);
+            totalSGST += taxable * (it.sgst / 100);
         }
         const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
 
@@ -438,41 +367,19 @@ app.post('/api/bills', async (req, res) => {
         );
         const billId = billInsert.insertId;
 
-        // Insert each bill item and reduce product stock
         for (const it of items) {
-            // Try multiple possible field names for product ID
-            const productId = it.product_id || it.productId || it.id || null;
-            const productName = it.product_name || it.productName || it.name || '';
-            const batch = it.batch || '';
-            const rate = Number(it.rate || 0);
-            const qty = Number(it.quantity || 0);
-            const discount = Number(it.discount || 0);
-            const cgst = Number(it.cgst || 0);
-            const sgst = Number(it.sgst || 0);
-            
-            // Get MRP and Expiry from the item sent by the frontend
-            const mrp = Number(it.mrp || 0);
-            const expiry = it.expiry || null;
-            
             await conn.query(
                 `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                 [billId, productId, productName, batch, mrp, rate, qty, expiry, discount, cgst, sgst]
+                 [billId, it.product_id, it.name, it.batch, it.mrp, it.rate, it.quantity, it.expiry, it.discount, it.cgst, it.sgst]
             );
-
-            // Decrease stock if product exists - ensure productId is valid
-            if (productId && !isNaN(productId)) {
-                const [updateResult] = await conn.query(
-                    `UPDATE products SET quantity = GREATEST(0, quantity - ?) WHERE id = ?`, 
-                    [qty, productId]
-                );
-                console.log(`Updated product ${productId}: reduced quantity by ${qty}`);
+            if (it.product_id) {
+                await conn.query(`UPDATE products SET quantity = GREATEST(0, quantity - ?) WHERE id = ?`, [it.quantity, it.product_id]);
             }
         }
 
         await conn.commit();
         conn.release();
-
         res.json({ message: 'Bill created', id: billId, bill_number: billNumber });
     } catch (err) {
         await conn.rollback().catch(() => {});
@@ -482,132 +389,73 @@ app.post('/api/bills', async (req, res) => {
     }
 });
 
-// Update an existing bill (edit)
+// Update an existing bill
 app.put('/api/bills/:id', async (req, res) => {
     const conn = await pool.getConnection();
     try {
         const billId = Number(req.params.id);
         const body = req.body;
 
-        // Fetch existing bill (and its items)
         const [billRows] = await conn.query('SELECT * FROM bills WHERE id = ?', [billId]);
-        if (!billRows || billRows.length === 0) {
-            conn.release();
-            return res.status(404).json({ error: 'Bill not found' });
-        }
-        const existingBill = billRows[0];
+        if (!billRows[0]) return res.status(404).json({ error: 'Bill not found' });
+        
         const [existingItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ?', [billId]);
-
-        // Incoming data
-        const items = body.items || [];
-        const patientName = body.patient_name || body.patientName || existingBill.patient_name;
-        const patientMobile = body.patient_mobile || body.patientMobile || existingBill.patient_mobile;
-        const doctorName = body.doctor_name || body.doctorName || existingBill.doctor_name;
-
-        // --- NEW: Customer handling logic for updates ---
-        let customerId = null;
-        if (patientMobile) {
-            const [existingCustomer] = await conn.query('SELECT id FROM customers WHERE mobile = ? LIMIT 1', [patientMobile]);
-            if (existingCustomer.length > 0) {
-                customerId = existingCustomer[0].id;
-            } else {
-                const [newCustomer] = await conn.query(
-                    `INSERT INTO customers (name, mobile, doctor_name) VALUES (?, ?, ?)`,
-                    [patientName, patientMobile, doctorName]
-                );
-                customerId = newCustomer.insertId;
-            }
-        }
-        // --- END NEW: Customer handling logic for updates ---
-
-
-        // Recalculate totals from new items
+        
+        let { items, patient_name, patient_mobile, doctor_name } = body;
+        
+        // SERVER-SIDE RECALCULATION FOR RIGIDITY
         let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
         for (const it of items) {
-            const rate = Number(it.rate || 0);
-            const qty = Number(it.quantity || 0);
-            const discount = Number(it.discount || 0);
-            const cgst = Number(it.cgst || 0);
-            const sgst = Number(it.sgst || 0);
+            const currentRate = Number(it.rate);
+            const currentQty = Number(it.quantity);
+            const currentDiscount = Number(it.discount);
+            const currentCgst = Number(it.cgst);
+            const currentSgst = Number(it.sgst);
 
-            const itemSubtotal = rate * qty;
-            const itemDiscount = itemSubtotal * (discount / 100);
-            const taxable = itemSubtotal - itemDiscount;
+            const itemSubtotal = currentRate * currentQty;
+            const itemDiscountAmount = itemSubtotal * (currentDiscount / 100);
+            const taxable = itemSubtotal - itemDiscountAmount;
+            
             subtotal += itemSubtotal;
-            totalDiscount += itemDiscount;
-            totalCGST += taxable * (cgst / 100);
-            totalSGST += taxable * (sgst / 100);
+            totalDiscount += itemDiscountAmount;
+            totalCGST += taxable * (currentCgst / 100);
+            totalSGST += taxable * (currentSgst / 100);
         }
         const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
 
-        // Begin transaction: update stock according to difference between existing & new items
         await conn.beginTransaction();
 
-        // Build map of existing quantities per product (product_id may be null)
         const existingMap = {};
         for (const it of existingItems) {
-            const pid = it.product_id ? Number(it.product_id) : `null-${it.id}`;
-            existingMap[pid] = (existingMap[pid] || 0) + Number(it.quantity);
+            if(it.product_id) existingMap[it.product_id] = (existingMap[it.product_id] || 0) + it.quantity;
         }
 
-        // Build map of new quantities per product
         const newMap = {};
         for (const it of items) {
-            const pid = it.product_id ? Number(it.product_id) : `null-new-${Math.random()}`;
-            newMap[pid] = (newMap[pid] || 0) + Number(it.quantity);
+             if(it.product_id) newMap[it.product_id] = (newMap[it.product_id] || 0) + it.quantity;
         }
 
-        // For each product id present in either map, compute delta = existing - new
-        // If delta > 0 => increase products.quantity by delta (return to stock)
-        // If delta < 0 => decrease products.quantity by -delta (remove from stock) ; ensure not negative
         const allKeys = new Set([...Object.keys(existingMap), ...Object.keys(newMap)]);
         for (const k of allKeys) {
-            // ignore pseudo keys for items without product_id
-            if (String(k).startsWith('null-')) continue;
             const pid = Number(k);
-            const oldQty = Number(existingMap[k] || 0);
-            const newQty = Number(newMap[k] || 0);
-            const delta = oldQty - newQty;
-            if (delta > 0) {
-                // old had more, return delta to stock
-                await conn.query('UPDATE products SET quantity = quantity + ? WHERE id = ?', [delta, pid]);
-                console.log(`Returned ${delta} units of product ${pid} to stock`);
-            } else if (delta < 0) {
-                const remove = -delta;
-                // reduce stock by remove but ensure not negative
-                await conn.query('UPDATE products SET quantity = GREATEST(0, quantity - ?) WHERE id = ?', [remove, pid]);
-                console.log(`Removed ${remove} units of product ${pid} from stock`);
+            const delta = (existingMap[k] || 0) - (newMap[k] || 0);
+            if (delta !== 0) {
+                 await conn.query('UPDATE products SET quantity = quantity + ? WHERE id = ?', [delta, pid]);
             }
         }
 
-        // Delete existing bill_items then insert new ones
         await conn.query('DELETE FROM bill_items WHERE bill_id = ?', [billId]);
-
         for (const it of items) {
-            const productId = it.product_id || it.productId || null;
-            const productName = it.product_name || it.productName || it.name || '';
-            const batch = it.batch || '';
-            const rate = Number(it.rate || 0);
-            const qty = Number(it.quantity || 0);
-            const discount = Number(it.discount || 0);
-            const cgst = Number(it.cgst || 0);
-            const sgst = Number(it.sgst || 0);
-
-            // Properly preserve MRP and Expiry from original bill items
-            const mrp = Number(it.mrp || 0);
-            const expiry = it.expiry || null;
-
             await conn.query(
                 `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                 [billId, productId, productName, batch, mrp, rate, qty, expiry, discount, cgst, sgst]
+                 [billId, it.product_id, it.product_name, it.batch, it.mrp, it.rate, it.quantity, it.expiry, it.discount, it.cgst, it.sgst]
             );
         }
 
-        // Update bills table totals & header
         await conn.query(
-            `UPDATE bills SET patient_name = ?, patient_mobile = ?, doctor_name = ?, subtotal = ?, total_discount = ?, total_cgst = ?, total_sgst = ?, grand_total = ?, customer_id = ? WHERE id = ?`,
-            [patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, billId]
+            `UPDATE bills SET patient_name = ?, patient_mobile = ?, doctor_name = ?, subtotal = ?, total_discount = ?, total_cgst = ?, total_sgst = ?, grand_total = ? WHERE id = ?`,
+            [patient_name, patient_mobile, doctor_name, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, billId]
         );
 
         await conn.commit();
@@ -620,6 +468,139 @@ app.put('/api/bills/:id', async (req, res) => {
         res.status(500).json({ error: 'Failed to update bill' });
     }
 });
+
+// ---------- PURCHASES ----------
+app.get('/api/purchases', async (req, res) => {
+    try {
+        const rows = await query('SELECT * FROM purchase_bills ORDER BY bill_date DESC, id DESC');
+        res.json(rows);
+    } catch (err) {
+        console.error('GET /api/purchases error:', err);
+        res.status(500).json({ error: 'Failed to fetch purchase bills' });
+    }
+});
+
+app.get('/api/purchases/:id', async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+        const purchaseId = Number(req.params.id);
+        const [pRows] = await conn.query('SELECT * FROM purchase_bills WHERE id = ?', [purchaseId]);
+        if (!pRows || pRows.length === 0) {
+            conn.release();
+            return res.status(404).json({ error: 'Purchase Bill not found' });
+        }
+        const purchaseBill = pRows[0];
+        const [items] = await conn.query('SELECT * FROM purchase_bill_items WHERE purchase_bill_id = ?', [purchaseId]);
+        
+        conn.release();
+        res.json({ ...purchaseBill, items });
+    } catch (err) {
+        conn.release();
+        console.error('GET /api/purchases/:id', err);
+        res.status(500).json({ error: 'Failed to fetch purchase bill' });
+    }
+});
+
+app.post('/api/purchases', async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+        const { supplierName, billNumber, billDate, taxType, items } = req.body;
+
+        if (!supplierName || !billNumber || !billDate || !taxType || !items || items.length === 0) {
+            return res.status(400).json({ error: 'Missing required fields for purchase bill.' });
+        }
+        
+        // Server-side calculation of total amount
+        const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+        const roundedTotal = Math.round(totalAmount);
+
+        await conn.beginTransaction();
+
+        const [purchaseInsert] = await conn.query(
+            `INSERT INTO purchase_bills (supplier_name, bill_number, bill_date, total_amount, tax_type) VALUES (?, ?, ?, ?, ?)`,
+            [supplierName, billNumber, billDate, roundedTotal, taxType]
+        );
+        const purchaseBillId = purchaseInsert.insertId;
+
+        for (const item of items) {
+            const { productName, hsn, batch, packaging, quantity, mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, amount } = item;
+            
+            await conn.query(
+                `INSERT INTO purchase_bill_items (purchase_bill_id, product_name, hsn, batch, packaging, quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, discount, expiry, cgst, sgst, igst, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [purchaseBillId, productName, hsn, batch, packaging, quantity, mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, amount]
+            );
+
+            await conn.query(
+                `INSERT INTO products (name, hsn, batch, packaging, quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, expiry, cgst, sgst) 
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 ON DUPLICATE KEY UPDATE 
+                    quantity = quantity + VALUES(quantity), 
+                    packaging = VALUES(packaging), 
+                    mrp = VALUES(mrp), 
+                    purchase_rate = VALUES(purchase_rate),
+                    sale_rate = VALUES(sale_rate),
+                    sale_rate_inclusive = VALUES(sale_rate_inclusive), 
+                    expiry = VALUES(expiry), 
+                    cgst = VALUES(cgst), 
+                    sgst = VALUES(sgst)`,
+                [productName, hsn, batch, packaging, quantity, mrp, purchaseRate, saleRate, saleRateIncl, expiry, item.saleCgst, item.saleSgst]
+            );
+        }
+
+        await conn.commit();
+        conn.release();
+        res.json({ message: 'Purchase bill added and inventory updated successfully!', id: purchaseBillId });
+
+    } catch (err) {
+        await conn.rollback().catch(() => {});
+        conn.release();
+        console.error('POST /api/purchases error:', err);
+        res.status(500).json({ error: 'Failed to create purchase bill and update inventory.' });
+    }
+});
+
+// ---------- REPORTS ----------
+app.get('/api/reports', async (req, res) => {
+    const { type, fromDate, toDate } = req.query;
+    if (!type || !fromDate || !toDate) {
+        return res.status(400).json({ error: 'Report type and date range are required.' });
+    }
+    
+    try {
+        let reportData = [];
+        let queryStr = '';
+
+        switch(type) {
+            case 'sales':
+                queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, patient_name, grand_total FROM bills WHERE bill_date BETWEEN ? AND ? ORDER BY bill_date DESC`;
+                reportData = await query(queryStr, [fromDate, toDate]);
+                break;
+            case 'gst':
+                queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, subtotal, total_discount, (subtotal - total_discount) as taxable_value, total_cgst, total_sgst, grand_total FROM bills WHERE bill_date BETWEEN ? AND ? ORDER BY bill_date DESC`;
+                reportData = await query(queryStr, [fromDate, toDate]);
+                break;
+            case 'inventory':
+                queryStr = `SELECT name, packaging, hsn, batch, quantity, mrp, purchase_rate, sale_rate_inclusive, expiry FROM products ORDER BY name`;
+                reportData = await query(queryStr);
+                break;
+            case 'purchases':
+                queryStr = `SELECT bill_number, supplier_name, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, tax_type, total_amount FROM purchase_bills WHERE bill_date BETWEEN ? AND ? ORDER BY bill_date DESC`;
+                reportData = await query(queryStr, [fromDate, toDate]);
+                break;
+            case 'expiry':
+                 queryStr = `SELECT name, batch, quantity, expiry FROM products WHERE expiry IS NOT NULL AND STR_TO_DATE(CONCAT(expiry, '-01'), '%Y-%m-%d') < CURDATE() ORDER BY expiry`;
+                 reportData = await query(queryStr);
+                 break;
+            default:
+                return res.status(400).json({ error: 'Invalid report type' });
+        }
+        res.json(reportData);
+    } catch (err) {
+        console.error(`Error generating ${type} report:`, err);
+        res.status(500).json({ error: `Failed to generate ${type} report`});
+    }
+});
+
 
 // ---------- Start Server ----------
 const PORT = process.env.PORT || 3000;
