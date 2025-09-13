@@ -809,6 +809,7 @@
                             <option value="sales">Sales Report</option>
                             <option value="purchases">Purchase Report</option>
                             <option value="gst">GST Report</option>
+                            <option value="hsn_sale">HSN-wise Sale Report</option>
                             <option value="inventory">Inventory Report</option>
                             <option value="expiry">Expiry Report</option>
                         </select>
@@ -1034,7 +1035,8 @@
                             <th>Product</th>
                             <th>Batch</th>
                             <th>Qty</th>
-                            <th>Purchase Rate</th>
+                            <th>Rate</th>
+                            <th>Subtotal</th>
                             <th>Disc %</th>
                             <th>GST</th>
                             <th>Amount</th>
@@ -1042,7 +1044,7 @@
                         </tr>
                     </thead>
                     <tbody id="purchaseItemsBody">
-                        <tr><td colspan="8" style="text-align: center;">No items added</td></tr>
+                        <tr><td colspan="9" style="text-align: center;">No items added</td></tr>
                     </tbody>
                 </table>
                 <div class="total-section" style="margin-top:10px;">
@@ -1249,7 +1251,6 @@
                 }
             } catch (error) {
                 showAlert('Failed to save settings.', 'danger');
-                console.error('Error saving settings:', error);
             }
         }
 
@@ -1800,7 +1801,7 @@
                 if (!response.ok) throw new Error(await response.json().then(e => e.error));
                 const data = await response.json();
                 
-                let html = `<h3>${type.charAt(0).toUpperCase() + type.slice(1)} Report from ${fromDate} to ${toDate}</h3>`;
+                let html = `<h3>${type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} Report from ${fromDate} to ${toDate}</h3>`;
 
                 if (data.length === 0) {
                     html += `<p>No data found for this period.</p>`;
@@ -2094,6 +2095,7 @@
             }
 
             const baseAmount = item.purchaseRate * item.quantity;
+            item.subtotal = baseAmount;
             const discountedAmount = baseAmount * (1 - (item.discount / 100));
             const gstAmount = discountedAmount * (purchaseGst / 100);
             item.amount = discountedAmount + gstAmount;
@@ -2109,16 +2111,21 @@
             const tableBody = document.getElementById('purchaseItemsBody');
             tableBody.innerHTML = '';
             if (purchaseBillItems.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="8" style="text-align: center;">No items added</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="9" style="text-align: center;">No items added</td></tr>';
                 return;
             }
             purchaseBillItems.forEach((item, index) => {
                 const gstText = item.igst > 0 ? `${item.igst}% (IGST)` : `${item.cgst + item.sgst}% (C/SGST)`;
                 const row = document.createElement('tr');
                 row.innerHTML = `
-                    <td>${item.productName}</td> <td>${item.batch}</td> <td>${item.quantity}</td>
-                    <td>₹${item.purchaseRate.toFixed(2)}</td> <td>${item.discount.toFixed(2)}%</td>
-                    <td>${gstText}</td> <td>₹${item.amount.toFixed(2)}</td>
+                    <td>${item.productName}</td>
+                    <td>${item.batch}</td>
+                    <td>${item.quantity}</td>
+                    <td>₹${item.purchaseRate.toFixed(2)}</td>
+                    <td>₹${item.subtotal.toFixed(2)}</td>
+                    <td>${item.discount.toFixed(2)}%</td>
+                    <td>${gstText}</td>
+                    <td>₹${item.amount.toFixed(2)}</td>
                     <td><button class="btn btn-danger btn-sm" onclick="removeProductFromPurchase(${index})">🗑️</button></td>
                 `;
                 tableBody.appendChild(row);

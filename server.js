@@ -334,7 +334,7 @@ app.post('/api/bills', async (req, res) => {
     try {
         const body = req.body;
         const billNumber = body.billNumber || `BILL-${Date.now()}`;
-        const billDate = body.billDate || new Date();
+        const billDate = body.billDate || new Date().toISOString().slice(0, 10); // YYYY-MM-DD
         const { patientName, patientMobile, doctorName, items } = body;
 
         let customerId = null;
@@ -510,8 +510,14 @@ app.post('/api/purchases', async (req, res) => {
             return res.status(400).json({ error: 'Missing required fields for purchase bill.' });
         }
         
-        // Server-side calculation of total amount
-        const totalAmount = items.reduce((sum, item) => sum + item.amount, 0);
+        // Server-side calculation of total amount for accuracy
+        const totalAmount = items.reduce((sum, item) => {
+            const base = item.purchaseRate * item.quantity;
+            const discounted = base * (1 - (item.discount / 100));
+            const totalGstPercent = item.igst > 0 ? item.igst : (item.cgst + item.sgst);
+            const gstAmount = discounted * (totalGstPercent / 100);
+            return sum + discounted + gstAmount;
+        }, 0);
         const roundedTotal = Math.round(totalAmount);
 
         await conn.beginTransaction();
@@ -591,6 +597,32 @@ app.get('/api/reports', async (req, res) => {
                  queryStr = `SELECT name, batch, quantity, expiry FROM products WHERE expiry IS NOT NULL AND STR_TO_DATE(CONCAT(expiry, '-01'), '%Y-%m-%d') < CURDATE() ORDER BY expiry`;
                  reportData = await query(queryStr);
                  break;
+            case 'hsn_sale':
+                queryStr = `
+                    SELECT
+                        p.hsn AS 'hsn_code',
+                        p.packaging,
+                        SUM(bi.quantity) AS 'quantity',
+                        (bi.cgst + bi.sgst) AS 'gst_percent',
+                        SUM(bi.rate * bi.quantity * (1 - bi.discount / 100)) AS 'taxable_amount',
+                        SUM((bi.rate * bi.quantity * (1 - bi.discount / 100)) * (bi.cgst / 100)) AS 'cgst_amount',
+                        SUM((bi.rate * bi.quantity * (1 - bi.discount / 100)) * (bi.sgst / 100)) AS 'sgst_amount',
+                        SUM((bi.rate * bi.quantity * (1 - bi.discount / 100)) * (1 + (bi.cgst + bi.sgst) / 100)) AS 'total_amount'
+                    FROM
+                        bill_items bi
+                    JOIN
+                        bills b ON bi.bill_id = b.id
+                    JOIN
+                        products p ON bi.product_id = p.id
+                    WHERE
+                        b.bill_date BETWEEN ? AND ?
+                    GROUP BY
+                        p.hsn, p.packaging, bi.cgst, bi.sgst
+                    ORDER BY
+                        p.hsn;
+                `;
+                reportData = await query(queryStr, [fromDate, toDate]);
+                break;
             default:
                 return res.status(400).json({ error: 'Invalid report type' });
         }
