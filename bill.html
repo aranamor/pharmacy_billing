@@ -813,8 +813,12 @@
                     <input type="number" id="newMRP" step="0.01" placeholder="Maximum retail price">
                 </div>
                 <div class="form-group">
-                    <label>Sale Rate *</label>
-                    <input type="number" id="newSaleRate" step="0.01" placeholder="Selling price">
+                    <label>Rate (Inclusive of Tax)</label>
+                    <input type="number" id="newSaleRateInclusive" step="0.01" placeholder="Price with GST" oninput="calculateExclusiveRate()">
+                </div>
+                <div class="form-group">
+                    <label>Rate (Exclusive of Tax) *</label>
+                    <input type="number" id="newSaleRate" step="0.01" placeholder="Selling price without GST">
                 </div>
                 <div class="form-group">
                     <label>Expiry Date *</label>
@@ -822,11 +826,11 @@
                 </div>
                 <div class="form-group">
                     <label>CGST % *</label>
-                    <input type="number" id="newCGST" min="0" max="100" step="0.5" value="6">
+                    <input type="number" id="newCGST" min="0" max="100" step="0.5" value="6" oninput="calculateExclusiveRate()">
                 </div>
                 <div class="form-group">
                     <label>SGST % *</label>
-                    <input type="number" id="newSGST" min="0" max="100" step="0.5" value="6">
+                    <input type="number" id="newSGST" min="0" max="100" step="0.5" value="6" oninput="calculateExclusiveRate()">
                 </div>
             </div>
             <div style="margin-top: 20px; display: flex; gap: 10px;">
@@ -1016,6 +1020,25 @@
             document.getElementById(modalId).classList.remove('active');
         }
 
+        function calculateExclusiveRate() {
+            const inclusiveRateEl = document.getElementById('newSaleRateInclusive');
+            const exclusiveRateEl = document.getElementById('newSaleRate');
+            const cgstEl = document.getElementById('newCGST');
+            const sgstEl = document.getElementById('newSGST');
+
+            const inclusiveRate = parseFloat(inclusiveRateEl.value);
+            const cgst = parseFloat(cgstEl.value) || 0;
+            const sgst = parseFloat(sgstEl.value) || 0;
+
+            if (!isNaN(inclusiveRate) && inclusiveRate > 0) {
+                const totalGstPercent = cgst + sgst;
+                const exclusiveRate = inclusiveRate / (1 + (totalGstPercent / 100));
+                exclusiveRateEl.value = exclusiveRate.toFixed(2);
+            } else if (inclusiveRateEl.value.trim() === '') {
+                 exclusiveRateEl.value = '';
+            }
+        }
+
         async function addProduct() {
             const product = {
                 name: document.getElementById('newProductName').value,
@@ -1062,6 +1085,7 @@
             document.getElementById('newBatch').value = '';
             document.getElementById('newQuantity').value = '';
             document.getElementById('newMRP').value = '';
+            document.getElementById('newSaleRateInclusive').value = '';
             document.getElementById('newSaleRate').value = '';
             document.getElementById('newExpiry').value = '';
             document.getElementById('newCGST').value = '6';
@@ -1882,7 +1906,7 @@
                 
                 } else if (reportType === 'inventory') {
                     const inventoryResponse = await fetch(`${API_BASE_URL}/products`);
-                    const allProducts = await inventoryResponse.json();
+                    const allProducts = await response.json();
 
                     let inventoryHtml = `<h3>Current Inventory Report</h3>`;
                     inventoryHtml += `<table><thead><tr><th>Product Name</th><th>HSN</th><th>Batch</th><th>Quantity</th><th>MRP</th><th>Sale Rate</th><th>Expiry</th><th>CGST %</th><th>SGST %</th></tr></thead><tbody>`;
@@ -2440,4 +2464,3 @@
     </script>
 </body>
 </html>
-
