@@ -1760,31 +1760,17 @@
         }
 
         function printInvoice() {
-            // FIX: This new function prints in a new window to avoid reloading the main page.
-            const invoiceContent = document.getElementById('invoiceContent').cloneNode(true);
-            const printWindow = window.open('', '_blank', 'height=700,width=900');
-            
-            printWindow.document.write('<html><head><title>Print Invoice</title>');
-            printWindow.document.write('<style>');
-            // Add print-friendly styles
-            printWindow.document.write(`
-                body { font-family: 'Segoe UI', sans-serif; margin: 20px; }
-                table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
-                .bill-header { text-align: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 2px solid #666; }
-                .bill-header h1, .bill-header h2 { margin: 0; }
-                .bill-header p { margin: 2px 0; font-size: 14px; }
-                .bill-details { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 15px; }
-                th, td { padding: 10px; text-align: left; border: 1px solid #ddd; }
-                .total-section { margin-top: 20px; float: right; width: 40%; max-width: 350px; }
-                .total-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
-                .total-row:last-child { font-weight: bold; font-size: 1.1em; }
-            `);
-            printWindow.document.write('</style></head><body>');
-            printWindow.document.body.appendChild(invoiceContent);
-            printWindow.document.write('</body></html>');
-            
-            printWindow.document.close();
-            printWindow.focus();
+            const invoiceContent = document.getElementById('invoiceContent').innerHTML;
+            const originalContent = document.body.innerHTML;
+
+            // Replace body with only invoice
+            document.body.innerHTML = invoiceContent;
+
+            // Print just the invoice
+            window.print();
+
+            // Restore original page
+            document.body.innerHTML = originalContent;
             
             // Use a small timeout to ensure content is loaded before print dialog opens
             setTimeout(() => {
