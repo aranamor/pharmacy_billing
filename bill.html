@@ -2065,15 +2065,15 @@
             
             // FIX: Fetch the current IST date from the server to set as the default.
             try {
-                const response = await fetch(`${API_BASE_URL}/current-ist-date`);
-                const data = await response.json();
-                // The server returns the date in 'YYYY-MM-DD' format, which is exactly what the input needs.
-                document.getElementById('purchaseBillDate').value = data.currentDate;
-            } catch (error) {
-                console.error("Could not fetch current date, falling back to local date.", error);
-                // Fallback in case of network error
-                document.getElementById('purchaseBillDate').valueAsDate = new Date();
-            }
+    		const response = await fetch(`${API_BASE_URL}/current-ist-date`);
+    		const data = await response.json();
+    		// Correctly access the 'currentDate' property from the JSON object
+    		document.getElementById('purchaseBillDate').value = data.currentDate;
+	    } catch (error) {
+    		console.error("Could not fetch current date, falling back to local date.", error);
+    		// Fallback in case of network error
+    	        document.getElementById('purchaseBillDate').valueAsDate = new Date();
+	}
 
             clearPurchaseProductForm();
             updatePurchaseItemsTable();

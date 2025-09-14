@@ -128,18 +128,13 @@ app.use('/api', checkAuth);
 // ---------- NEW ENDPOINT FOR CURRENT DATE ----------
 // Provides a reliable IST date for client-side defaults.
 app.get('/api/current-ist-date', async (req, res) => {
-    try {
-        const [rows] = await pool.query("SELECT CURDATE() as today");
-        // The date will be returned in 'YYYY-MM-DD' format which is perfect for an <input type="date">
-        const date = new Date(rows[0].today);
-        const year = date.getFullYear();
-        const month = String(date.getMonth() + 1).padStart(2, '0');
-        const day = String(date.getDate()).padStart(2, '0');
-        res.json({ currentDate: `${year}-${month}-${day}` });
-    } catch (err) {
-        console.error('GET /api/current-ist-date error:', err);
-        res.status(500).json({ error: 'Failed to fetch current date' });
-    }
+   try {
+    const [rows] = await pool.query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') as today");
+    res.json({ currentDate: rows[0].today });
+} catch (err) {
+    console.error('GET /api/current-ist-date error:', err);
+    res.status(500).json({ error: 'Failed to fetch current date' });
+}
 });
 
 
