@@ -611,6 +611,10 @@
                         <label>Doctor Name</label>
                         <input type="text" id="doctorName" placeholder="Prescribing doctor (optional)">
                     </div>
+                    <div class="form-group">
+                        <label>Bill Date</label>
+                        <input type="date" id="saleBillDate">
+                    </div>
                 </div>
 
                 <h3>Add Products</h3>
@@ -1163,6 +1167,7 @@
             await fetchInventory();
             await fetchDashboardData();
             setTodayDate();
+            await setSaleBillDate(); // Set default date for new sales bill
         });
 
         // Tab Switching
@@ -1698,6 +1703,7 @@
                 patientMobile: document.getElementById('patientMobile').value,
                 doctorName: document.getElementById('doctorName').value,
                 items: billItems.map(item => ({ ...item, product_id: item.id })),
+                billDate: document.getElementById('saleBillDate').value,
             };
 
             try {
@@ -1754,12 +1760,37 @@
         }
 
         function printInvoice() {
-            const content = document.getElementById('invoiceContent').innerHTML;
-            const original = document.body.innerHTML;
-            document.body.innerHTML = content;
-            window.print();
-            document.body.innerHTML = original;
-            location.reload();
+            // FIX: This new function prints in a new window to avoid reloading the main page.
+            const invoiceContent = document.getElementById('invoiceContent').cloneNode(true);
+            const printWindow = window.open('', '_blank', 'height=700,width=900');
+            
+            printWindow.document.write('<html><head><title>Print Invoice</title>');
+            printWindow.document.write('<style>');
+            // Add print-friendly styles
+            printWindow.document.write(`
+                body { font-family: 'Segoe UI', sans-serif; margin: 20px; }
+                table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+                .bill-header { text-align: center; margin-bottom: 20px; padding-bottom: 20px; border-bottom: 2px solid #666; }
+                .bill-header h1, .bill-header h2 { margin: 0; }
+                .bill-header p { margin: 2px 0; font-size: 14px; }
+                .bill-details { display: flex; justify-content: space-between; margin-bottom: 10px; font-size: 15px; }
+                th, td { padding: 10px; text-align: left; border: 1px solid #ddd; }
+                .total-section { margin-top: 20px; float: right; width: 40%; max-width: 350px; }
+                .total-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #eee; }
+                .total-row:last-child { font-weight: bold; font-size: 1.1em; }
+            `);
+            printWindow.document.write('</style></head><body>');
+            printWindow.document.body.appendChild(invoiceContent);
+            printWindow.document.write('</body></html>');
+            
+            printWindow.document.close();
+            printWindow.focus();
+            
+            // Use a small timeout to ensure content is loaded before print dialog opens
+            setTimeout(() => {
+                printWindow.print();
+                printWindow.close();
+            }, 250);
         }
 
         function clearBill() {
@@ -1770,6 +1801,7 @@
             clearProductInputs();
             updateBillTable();
             calculateTotals();
+            setSaleBillDate();
         }
 
         // Dashboard & Reporting
@@ -2267,6 +2299,22 @@
             return `${day}/${month}/${year}`;
         }
 
+        async function setSaleBillDate() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/current-ist-date`);
+                const data = await response.json();
+                if (document.getElementById('saleBillDate')) {
+                    document.getElementById('saleBillDate').value = data.currentDate;
+                }
+            } catch (error) {
+                console.error("Could not fetch current date for sale bill, falling back to local date.", error);
+                if (document.getElementById('saleBillDate')) {
+                    const today = new Date().toISOString().split('T')[0];
+                    document.getElementById('saleBillDate').value = today;
+                }
+            }
+        }
+
         function setTodayDate() {
             // This correctly sets the report dates to the user's local "today",
             // which is the desired behavior for filtering.
@@ -2413,3 +2461,4 @@
     </script>
 </body>
 </html>
+

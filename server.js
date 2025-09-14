@@ -333,7 +333,7 @@ app.get('/api/customers/:id', async (req, res) => {
     try {
         const id = Number(req.params.id);
         const rows = await query('SELECT * FROM customers WHERE id = ? LIMIT 1', [id]);
-        if (!rows || rows.length === 0) return res.status(404).json({ error: 'Customer not found' });
+        if (!rows || rows.length === 0) return res.status(404).json({ error: 'Product not found' });
         res.json(rows[0]);
     } catch (err) {
         console.error('GET /api/customers/:id', err);
@@ -456,7 +456,7 @@ app.post('/api/bills', async (req, res) => {
         const body = req.body;
         const billNumber = body.billNumber || `BILL-${Date.now()}`;
         
-        const { patientName, patientMobile, doctorName, items } = body;
+        const { patientName, patientMobile, doctorName, items, billDate } = body;
 
         let customerId = null;
         if (patientMobile) {
@@ -481,11 +481,22 @@ app.post('/api/bills', async (req, res) => {
 
         await conn.beginTransaction();
 
-        const [billInsert] = await conn.query(
-            `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-             [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId]
-        );
+        let insertQuery;
+        let insertParams;
+
+        if (billDate) {
+            // If a date is provided, include it in the insert.
+            insertQuery = `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id, bill_date)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            insertParams = [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, billDate];
+        } else {
+            // If no date is provided, omit the column to use the DB default.
+            insertQuery = `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            insertParams = [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId];
+        }
+        
+        const [billInsert] = await conn.query(insertQuery, insertParams);
         const billId = billInsert.insertId;
 
         for (const it of items) {
