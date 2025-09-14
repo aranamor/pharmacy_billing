@@ -3,20 +3,31 @@ const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2/promise');
 const bodyParser = require('body-parser');
+const path = require('path');
+const session = require('express-session');
 
 const app = express();
 app.use(cors());
-const path = require('path');
 
-// Serve bill.html and any other static files from current folder
+// Body parser and session middleware
+app.use(bodyParser.json({ limit: '10mb' }));
+app.use(session({
+    secret: 'a-very-secret-key-for-pharmacy-billing',
+    resave: false, // Don't save session if unmodified
+    saveUninitialized: false, // Don't create a session until something is stored
+    cookie: { 
+        httpOnly: true, // Prevents client-side JS from accessing the cookie
+        secure: false, // Should be true in production with HTTPS
+        sameSite: 'strict' // Helps prevent CSRF attacks
+    }
+}));
+
+// Serve static files like images and css
 app.use(express.static(path.join(__dirname)));
 
-// Default route: send bill.html
-app.get('/', (req, res) => {
-    res.sendFile(path.join(__dirname, 'bill.html'));
-});
-
-app.use(bodyParser.json({ limit: '10mb' }));
+// Hardcoded credentials as requested
+const USERNAME = 'gmtr004';
+const PASSWORD = 'art123';
 
 // --------- DB CONFIG: update these to match your environment ----------
 const DB_CONFIG = {
@@ -52,6 +63,67 @@ async function query(sql, params = []) {
     const [rows] = await pool.execute(sql, params);
     return rows;
 }
+
+// ---------- LOGIN AND AUTHENTICATION ----------
+
+// Login endpoint
+app.post('/api/login', (req, res) => {
+    const { username, password } = req.body;
+    if (username === USERNAME && password === PASSWORD) {
+        req.session.loggedIn = true; // This creates and saves the session
+        res.json({ success: true, message: 'Login successful' });
+    } else {
+        res.status(401).json({ success: false, message: 'Invalid username or password' });
+    }
+});
+
+// Logout endpoint for user interaction (e.g., clicking the logout button)
+app.post('/api/logout', (req, res) => {
+    req.session.destroy(err => {
+        if (err) {
+            return res.status(500).json({ message: 'Could not log out.' });
+        }
+        res.clearCookie('connect.sid'); // Ensure the cookie is cleared
+        res.json({ success: true, message: 'Logged out successfully' });
+    });
+});
+
+// Special logout endpoint for navigator.sendBeacon, used on page unload
+app.post('/api/logout-beacon', (req, res) => {
+    if (req.session) {
+        req.session.destroy(); // Destroy session on refresh/close
+    }
+    res.sendStatus(204); // No Content - beacon doesn't process responses
+});
+
+
+// Middleware to check if the user is authenticated
+const checkAuth = (req, res, next) => {
+    if (req.session && req.session.loggedIn) {
+        next(); // User is authenticated, proceed to the requested route
+    } else {
+        res.redirect('/'); // User is not authenticated, redirect to login page
+    }
+};
+
+// ---------- PAGE ROUTES ----------
+
+// Default route: send login page (index.html)
+app.get('/', (req, res) => {
+    res.sendFile(path.join(__dirname, 'index.html'));
+});
+
+// Serve bill.html (main application) only if authenticated
+app.get('/bill', checkAuth, (req, res) => {
+    res.sendFile(path.join(__dirname, 'bill.html'));
+});
+
+
+// ---------- PROTECTED API ROUTES ----------
+
+// The checkAuth middleware is applied to all API routes below this line
+app.use('/api', checkAuth);
+
 
 // ---------- NEW ENDPOINT FOR CURRENT DATE ----------
 // Provides a reliable IST date for client-side defaults.

@@ -126,3 +126,4 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('address', 'Near MBB Club, Shivnagar, 799001'),
 ('lowStockThreshold', '10');
 
+    

@@ -548,6 +548,7 @@
             <button class="tab" onclick="switchTab('reports')">📈 Reports</button>
             <button class="tab" onclick="switchTab('settings')">⚙️ Settings</button>
             <button class="tab" onclick="switchTab('oldBills')">📜 Bills</button>
+            <button class="tab" onclick="logout()" style="margin-left: auto; color: #f93b1d; font-weight: bold;">🔒 Logout</button>
         </div>
 
         <div class="content">
@@ -1137,6 +1138,13 @@
 
 
     <script>
+        // This script will automatically log the user out when the page is refreshed or closed.
+        window.addEventListener('beforeunload', function() {
+            // Use navigator.sendBeacon as it's a reliable way to send data from a closing page.
+            // It sends a POST request, so the body cannot be empty.
+            navigator.sendBeacon('/api/logout-beacon', new Blob());
+        });
+
         // Data Storage
         let inventory = [];
         let billItems = [];
@@ -1146,7 +1154,7 @@
         const packagingTypes = [ "STRIP", "BOTTLE", "PACK", "JAR", "TABLET", "CAPSULES", "BOX", "TUBE", "PIECE", "VIAL", "INJ", "SACHET", "SPRAY BOTTLE", "CAN", "UNIT", "AMPUL", "DROP", "PACKET", "POUCH", "INSURANCE", "RESPULE", "AMPOULE", "GLOVES", "INSULIN", "VIAL & SMALL BOTTLE", "SYRINGE", "TIN", "CONTAINER", "SUPPOSITRIES", "ML", "INJECTION" ];
 
         // Base URL for the API
-        const API_BASE_URL = 'http://localhost:3000/api';
+        const API_BASE_URL = '/api'; // Changed to relative path
 
         // Initialize
         document.addEventListener('DOMContentLoaded', async function() {
@@ -1178,6 +1186,23 @@
                 fetchBills();
             } else if (tabName === 'purchases') {
                 fetchPurchaseBills();
+            }
+        }
+
+        // Manual and Automatic Logout
+        async function logout() {
+            if (confirm('Are you sure you want to log out?')) {
+                try {
+                    const response = await fetch('/api/logout', { method: 'POST' });
+                    if (response.ok) {
+                        // Redirect to login page on successful logout
+                        window.location.href = '/';
+                    } else {
+                        showAlert('Logout failed. Please try again.', 'danger');
+                    }
+                } catch (error) {
+                    showAlert('An error occurred during logout.', 'danger');
+                }
             }
         }
 
@@ -2388,4 +2413,3 @@
     </script>
 </body>
 </html>
-
