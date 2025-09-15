@@ -604,7 +604,6 @@
                 <div class="form-grid">
                     <div class="form-group">
                         <label>Patient Name *</label>
-                        <!-- FIX 1: Add select-wrapper for consistent styling and behavior -->
                         <div class="select-wrapper">
                             <input type="text" id="patientName" placeholder="Enter patient name" oninput="searchCustomer()" autocomplete="off">
                             <div class="dropdown-list" id="patientNameDropdown"></div>
@@ -612,7 +611,10 @@
                     </div>
                     <div class="form-group">
                         <label>Patient Mobile *</label>
-                        <input type="tel" id="patientMobile" placeholder="10-digit mobile number" maxlength="10" oninput="searchCustomer()" autocomplete="off">
+                        <div class="select-wrapper">
+                            <input type="tel" id="patientMobile" placeholder="10-digit mobile number" maxlength="10" oninput="searchCustomer()" autocomplete="off">
+                            <div class="dropdown-list" id="patientMobileDropdown"></div>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>Doctor Name</label>
@@ -1621,6 +1623,7 @@
             if (!event.target.closest('.select-wrapper')) {
                 document.getElementById('billProductDropdown').style.display = 'none';
                 document.getElementById('patientNameDropdown').style.display = 'none';
+                document.getElementById('patientMobileDropdown').style.display = 'none';
             }
         });
 
@@ -2533,17 +2536,44 @@
                 }
             }
         }
+        
         async function searchCustomer() {
-            const nameQuery = document.getElementById('patientName').value.trim();
-            const mobileQuery = document.getElementById('patientMobile').value.trim();
-            const query = nameQuery || mobileQuery;
+            const nameInput = document.getElementById('patientName');
+            const mobileInput = document.getElementById('patientMobile');
+            const nameDropdown = document.getElementById('patientNameDropdown');
+            const mobileDropdown = document.getElementById('patientMobileDropdown');
 
-            const dropdown = document.getElementById('patientNameDropdown');
-            dropdown.innerHTML = '';
+            let query = '';
+            let activeDropdown;
+
+            // Hide the non-active dropdown to prevent multiple lists from showing
+            if (document.activeElement === mobileInput) {
+                nameDropdown.style.display = 'none';
+                nameDropdown.innerHTML = '';
+            } else {
+                mobileDropdown.style.display = 'none';
+                mobileDropdown.innerHTML = '';
+            }
+            
+            if (document.activeElement === mobileInput) {
+                query = mobileInput.value.trim();
+                activeDropdown = mobileDropdown;
+            } else if (document.activeElement === nameInput) {
+                query = nameInput.value.trim();
+                activeDropdown = nameDropdown;
+            } else {
+                // If nothing is focused, ensure both dropdowns are hidden and stop.
+                nameDropdown.style.display = 'none';
+                mobileDropdown.style.display = 'none';
+                return; 
+            }
+            
+            activeDropdown.innerHTML = '';
             if (query.length < 2) {
-                dropdown.style.display = 'none';
+                activeDropdown.style.display = 'none';
                 return;
             }
+
             try {
                 const response = await fetch(`${API_BASE_URL}/customers/search?query=${encodeURIComponent(query)}`);
                 const customers = await response.json();
@@ -2552,21 +2582,23 @@
                         const item = document.createElement('div');
                         item.textContent = `${customer.name} - ${customer.mobile}`;
                         item.onclick = () => selectCustomer(customer);
-                        dropdown.appendChild(item);
+                        activeDropdown.appendChild(item);
                     });
-                    dropdown.style.display = 'block';
+                    activeDropdown.style.display = 'block';
                 } else {
-                    dropdown.style.display = 'none';
+                     activeDropdown.style.display = 'none';
                 }
             } catch (error) {
                 console.error('Error searching customers:', error);
             }
         }
+
         function selectCustomer(customer) {
             document.getElementById('patientName').value = customer.name;
             document.getElementById('patientMobile').value = customer.mobile;
             document.getElementById('doctorName').value = customer.doctor_name || '';
             document.getElementById('patientNameDropdown').style.display = 'none';
+            document.getElementById('patientMobileDropdown').style.display = 'none';
         }
     </script>
 </body>

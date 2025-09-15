@@ -253,6 +253,22 @@ app.get('/api/customers', async (req, res) => {
     }
 });
 
+// BUG FIX: Added the missing /api/customers/search endpoint
+app.get('/api/customers/search', async (req, res) => {
+    try {
+        const q = (req.query.query || '').trim();
+        const like = `%${q}%`;
+        const rows = await query(
+            `SELECT * FROM customers WHERE name LIKE ? OR mobile LIKE ? ORDER BY name ASC LIMIT 50`,
+            [like, like]
+        );
+        res.json(rows);
+    } catch (err) {
+        console.error('GET /api/customers/search error:', err);
+        res.status(500).json({ error: 'Search failed' });
+    }
+});
+
 app.get('/api/customers/:id', async (req, res) => {
     try {
         const [row] = await query('SELECT * FROM customers WHERE id = ?', [Number(req.params.id)]);
@@ -264,20 +280,6 @@ app.get('/api/customers/:id', async (req, res) => {
     } catch (err) {
         console.error(`GET /api/customers/${req.params.id} error:`, err);
         res.status(500).json({ error: 'Failed to fetch customer' });
-    }
-});
-
-app.get('/api/customers/search', async (req, res) => {
-    try {
-        const q = (req.query.query || '').trim();
-        const like = `%${q}%`;
-        const rows = await query(
-            `SELECT * FROM customers WHERE name LIKE ? OR mobile LIKE ? ORDER BY name ASC LIMIT 50`,
-            [like, like]
-        );
-        res.json(rows);
-    } catch (err) {
-        res.status(500).json({ error: 'Search failed' });
     }
 });
 
@@ -697,4 +699,3 @@ app.listen(PORT, () => {
     console.log(`API server running on port ${PORT}`);
     console.log(`Open http://localhost:${PORT} in your browser`);
 });
-
