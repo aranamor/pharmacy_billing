@@ -1888,7 +1888,17 @@
         function updateBillsTable(bills) {
             const billsBody = document.getElementById('billsBody');
             billsBody.innerHTML = '';
-            if (!bills || bills.length === 0) {
+
+            // FIX: Add a robust check to ensure `bills` is an array.
+            // This directly prevents the "bills.forEach is not a function" error if the API
+            // returns an error object or something other than an array.
+            if (!Array.isArray(bills)) {
+                console.error("Error: Expected an array of bills, but received:", bills);
+                billsBody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: red;">Could not load bills. Invalid data received.</td></tr>';
+                return;
+            }
+            
+            if (bills.length === 0) {
                 billsBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No bills found</td></tr>';
                 return;
             }
@@ -2447,4 +2457,3 @@
     </script>
 </body>
 </html>
-
