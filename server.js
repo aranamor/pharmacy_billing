@@ -159,6 +159,20 @@ app.get('/api/products', async (req, res) => {
     }
 });
 
+app.get('/api/products/:id', async (req, res) => {
+    try {
+        const [row] = await query('SELECT * FROM products WHERE id = ?', [Number(req.params.id)]);
+        if (row) {
+            res.json(row);
+        } else {
+            res.status(404).json({ error: 'Product not found' });
+        }
+    } catch (err) {
+        console.error(`GET /api/products/${req.params.id} error:`, err);
+        res.status(500).json({ error: 'Failed to fetch product' });
+    }
+});
+
 app.get('/api/products/search', async (req, res) => {
     try {
         const q = (req.query.query || '').trim();
@@ -180,10 +194,10 @@ app.get('/api/products/search', async (req, res) => {
 
 app.post('/api/products', async (req, res) => {
     try {
-        const { name, hsn, batch, quantity, packaging, mrp, saleRate, saleRateInclusive, expiry, cgst, sgst } = req.body;
+        const { name, hsn, batch, quantity, packaging, mrp, saleRate, saleRateInclusive, expiry, cgst, sgst, purchase_rate } = req.body;
         const result = await query(
             `INSERT INTO products (name, hsn, batch, quantity, packaging, mrp, purchase_rate, sale_rate, sale_rate_inclusive, expiry, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [name, hsn, batch, Number(quantity || 0), packaging, Number(mrp || 0), 0, Number(saleRate || 0), Number(saleRateInclusive || 0), expiry, Number(cgst || 0), Number(sgst || 0)]
+            [name, hsn, batch, Number(quantity || 0), packaging, Number(mrp || 0), Number(purchase_rate || 0), Number(saleRate || 0), Number(saleRateInclusive || 0), expiry, Number(cgst || 0), Number(sgst || 0)]
         );
         res.json({ message: 'Product added', id: result.insertId });
     } catch (err) {
@@ -236,6 +250,20 @@ app.get('/api/customers', async (req, res) => {
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch customers' });
+    }
+});
+
+app.get('/api/customers/:id', async (req, res) => {
+    try {
+        const [row] = await query('SELECT * FROM customers WHERE id = ?', [Number(req.params.id)]);
+        if (row) {
+            res.json(row);
+        } else {
+            res.status(404).json({ error: 'Customer not found' });
+        }
+    } catch (err) {
+        console.error(`GET /api/customers/${req.params.id} error:`, err);
+        res.status(500).json({ error: 'Failed to fetch customer' });
     }
 });
 
@@ -357,7 +385,6 @@ app.post('/api/bills', async (req, res) => {
     const conn = await pool.getConnection();
     try {
         const { patientName, patientMobile, doctorName, items, billDate, overallDiscountPercent } = req.body;
-        const billNumber = `BILL-${Date.now()}`;
         let customerId = null;
         if (patientMobile) {
             const [existing] = await conn.query('SELECT id FROM customers WHERE mobile = ? LIMIT 1', [patientMobile]);
@@ -383,11 +410,17 @@ app.post('/api/bills', async (req, res) => {
         }
         const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
         await conn.beginTransaction();
+
         const [billInsert] = await conn.query(
             `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id, bill_date, overall_discount_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, billDate || new Date(), overallDiscount]
+            ['TEMP', patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, billDate || new Date(), overallDiscount]
         );
         const billId = billInsert.insertId;
+        const year = new Date().getFullYear();
+        const billNumber = `INV-${year}-${String(billId).padStart(4, '0')}`;
+
+        await conn.query('UPDATE bills SET bill_number = ? WHERE id = ?', [billNumber, billId]);
+        
         for (const it of items) {
             await conn.query(
                 `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -539,15 +572,26 @@ app.post('/api/purchases', async (req, res) => {
         const purchaseBillId = purchaseInsert.insertId;
 
         for (const item of items) {
-            const { productName, hsn, batch, packaging, quantity, freeQuantity, mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, amount } = item;
+            const { 
+                productName, hsn, batch, packaging, quantity, freeQuantity, 
+                mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, 
+                cgst, sgst, igst, saleCgst, saleSgst
+            } = item;
             
+            const baseAmount = (Number(purchaseRate) || 0) * (Number(quantity) || 0);
+            const discountAmount = baseAmount * ((Number(discount) || 0) / 100);
+            const taxableAmountForItem = baseAmount - discountAmount;
+            const totalGstPercent = (Number(igst) || 0) > 0 ? (Number(igst) || 0) : ((Number(cgst) || 0) + (Number(sgst) || 0));
+            const gstAmountForItem = taxableAmountForItem * (totalGstPercent / 100);
+            const itemTotalAmount = taxableAmountForItem + gstAmountForItem;
+
             await conn.query(
                 `INSERT INTO purchase_bill_items (purchase_bill_id, product_name, hsn, batch, packaging, quantity, free_quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, discount, expiry, cgst, sgst, igst, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [purchaseBillId, productName, hsn, batch, packaging, quantity, freeQuantity || 0, mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, amount]
+                [purchaseBillId, productName, hsn, batch, packaging, quantity, freeQuantity || 0, mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, itemTotalAmount]
             );
 
             const totalQuantity = (Number(quantity) || 0) + (Number(freeQuantity) || 0);
-
+            
             await conn.query(
                 `INSERT INTO products (name, hsn, batch, packaging, quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, expiry, cgst, sgst) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -561,7 +605,7 @@ app.post('/api/purchases', async (req, res) => {
                     expiry = VALUES(expiry), 
                     cgst = VALUES(cgst), 
                     sgst = VALUES(sgst)`,
-                [productName, hsn, batch, packaging, totalQuantity, mrp, purchaseRate, saleRate, saleRateIncl, expiry, item.saleCgst, item.saleSgst]
+                [productName, hsn, batch, packaging, totalQuantity, mrp, purchaseRate, saleRate, saleRateIncl, expiry, saleCgst, saleSgst]
             );
         }
 
@@ -625,7 +669,7 @@ app.get('/api/reports', async (req, res) => {
                         bill_items bi
                     JOIN
                         bills b ON bi.bill_id = b.id
-                    JOIN
+                    LEFT JOIN
                         products p ON bi.product_id = p.id
                     WHERE
                         DATE(b.bill_date) BETWEEN ? AND ?
@@ -653,3 +697,4 @@ app.listen(PORT, () => {
     console.log(`API server running on port ${PORT}`);
     console.log(`Open http://localhost:${PORT} in your browser`);
 });
+

@@ -124,6 +124,7 @@
         .form-group {
             display: flex;
             flex-direction: column;
+            position: relative; 
         }
 
         .form-group label {
@@ -499,21 +500,15 @@
             }
         }
 
-        /* Styles for the searchable select dropdown */
+        /* FIX 1: Consolidate dropdown styles for consistency */
         .select-wrapper {
             position: relative;
-        }
-        .select-wrapper input {
-            width: 100%;
-            padding: 10px 15px;
-            border: 2px solid #dee2e6;
-            border-radius: 8px;
-            font-size: 14px;
-            box-sizing: border-box;
         }
         .select-wrapper .dropdown-list {
             display: none;
             position: absolute;
+            top: 100%;
+            left: 0;
             width: 100%;
             max-height: 200px;
             overflow-y: auto;
@@ -609,12 +604,15 @@
                 <div class="form-grid">
                     <div class="form-group">
                         <label>Patient Name *</label>
-                        <input type="text" id="patientName" placeholder="Enter patient name" oninput="searchCustomer()">
-                        <div class="dropdown-list" id="patientNameDropdown"></div>
+                        <!-- FIX 1: Add select-wrapper for consistent styling and behavior -->
+                        <div class="select-wrapper">
+                            <input type="text" id="patientName" placeholder="Enter patient name" oninput="searchCustomer()" autocomplete="off">
+                            <div class="dropdown-list" id="patientNameDropdown"></div>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>Patient Mobile *</label>
-                        <input type="tel" id="patientMobile" placeholder="10-digit mobile number" maxlength="10" oninput="searchCustomer()">
+                        <input type="tel" id="patientMobile" placeholder="10-digit mobile number" maxlength="10" oninput="searchCustomer()" autocomplete="off">
                     </div>
                     <div class="form-group">
                         <label>Doctor Name</label>
@@ -903,61 +901,67 @@
     <!-- Add/Edit Product Modal -->
     <div id="addProductModal" class="modal">
         <div class="modal-content">
-            <h2>Add New Product (Manual)</h2>
+            <h2 id="productModalTitle">Add New Product (Manual)</h2>
+            <input type="hidden" id="editProductId">
             <div class="form-grid">
                 <div class="form-group">
                     <label>Product Name *</label>
-                    <input type="text" id="newProductName" placeholder="Enter product name">
+                    <input type="text" id="productName" placeholder="Enter product name">
                 </div>
                 <div class="form-group">
                     <label>Packaging Type</label>
-                    <select id="newPackaging">
+                    <select id="productPackaging">
                         <!-- Options will be populated by JS -->
                     </select>
                 </div>
                 <div class="form-group">
                     <label>HSN Code *</label>
-                    <input type="text" id="newHSN" placeholder="HSN Code">
+                    <input type="text" id="productHSN" placeholder="HSN Code">
                 </div>
                 <div class="form-group">
                     <label>Batch Number *</label>
-                    <input type="text" id="newBatch" placeholder="Batch number">
+                    <input type="text" id="productBatch" placeholder="Batch number">
                 </div>
                 <div class="form-group">
                     <label>Quantity *</label>
-                    <input type="number" id="newQuantity" min="0" placeholder="Initial quantity">
+                    <input type="number" id="productQuantity" min="0" placeholder="Initial quantity">
+                </div>
+                 <div class="form-group">
+                    <label>Purchase Rate *</label>
+                    <input type="number" id="productPurchaseRate" step="0.01" placeholder="Price without GST">
                 </div>
                 <div class="form-group">
                     <label>MRP *</label>
-                    <input type="number" id="newMRP" step="0.01" placeholder="Maximum retail price">
+                    <input type="number" id="productMRP" step="0.01" placeholder="Maximum retail price">
                 </div>
                 <div class="form-group">
                     <label>Sale Rate (Incl. Tax) *</label>
-                    <input type="number" id="newSaleRateInclusive" step="0.01" placeholder="Price with GST" oninput="calculateSaleExclusiveRate()">
+                    <input type="number" id="productSaleRateInclusive" step="0.01" placeholder="Price with GST" oninput="calculateModalSaleExclusiveRate()">
                 </div>
                 <div class="form-group">
                     <label>Sale Rate (Excl. Tax)</label>
-                    <input type="number" id="newSaleRate" step="0.01" readonly>
+                    <input type="number" id="productSaleRate" step="0.01" readonly>
                 </div>
                  <div class="form-group">
                     <label>CGST % *</label>
-                    <input type="number" id="newCGST" min="0" max="100" step="0.5" value="6" oninput="calculateSaleExclusiveRate()">
+                    <input type="number" id="productCGST" min="0" max="100" step="0.5" value="6" oninput="calculateModalSaleExclusiveRate()">
                 </div>
                 <div class="form-group">
                     <label>SGST % *</label>
-                    <input type="number" id="newSGST" min="0" max="100" step="0.5" value="6" oninput="calculateSaleExclusiveRate()">
+                    <input type="number" id="productSGST" min="0" max="100" step="0.5" value="6" oninput="calculateModalSaleExclusiveRate()">
                 </div>
                 <div class="form-group">
                     <label>Expiry Date *</label>
-                    <input type="month" id="newExpiry">
+                    <input type="month" id="productExpiry">
                 </div>
             </div>
             <div style="margin-top: 20px; display: flex; gap: 10px;">
-                <button class="btn btn-success" onclick="addProduct()">Add Product</button>
+                <button id="productModalSaveBtn" class="btn btn-success" onclick="saveProduct()">Add Product</button>
                 <button class="btn btn-danger" onclick="closeModal('addProductModal')">Cancel</button>
             </div>
         </div>
     </div>
+
 
     <!-- Add Purchase Bill Modal -->
     <div id="addPurchaseModal" class="modal">
@@ -1248,13 +1252,13 @@
         }
 
         function populatePackagingDropdowns() {
-            const newPackagingSelect = document.getElementById('newPackaging');
+            const productPackagingSelect = document.getElementById('productPackaging');
             const purchasePackagingSelect = document.getElementById('purchasePackaging');
             
             packagingTypes.forEach(type => {
                 const option1 = new Option(type, type);
                 const option2 = new Option(type, type);
-                newPackagingSelect.add(option1);
+                productPackagingSelect.add(option1);
                 purchasePackagingSelect.add(option2);
             });
         }
@@ -1343,10 +1347,13 @@
                 showAlert('Failed to load inventory: ' + error.message, 'danger');
             }
         }
-        async function showAddProductModal() {
-            closeModal('invoiceModal'); // Close any open modals
-            document.getElementById('addProductModal').classList.add('active');
+        
+        function showAddProductModal() {
             clearProductForm();
+            document.getElementById('productModalTitle').textContent = 'Add New Product (Manual)';
+            document.getElementById('productModalSaveBtn').textContent = 'Add Product';
+            document.getElementById('editProductId').value = '';
+            document.getElementById('addProductModal').classList.add('active');
         }
 
         function closeModal(modalId) {
@@ -1356,11 +1363,11 @@
             }
         }
 
-        function calculateSaleExclusiveRate() {
-            const inclusiveRateEl = document.getElementById('newSaleRateInclusive');
-            const exclusiveRateEl = document.getElementById('newSaleRate');
-            const cgst = parseFloat(document.getElementById('newCGST').value) || 0;
-            const sgst = parseFloat(document.getElementById('newSGST').value) || 0;
+        function calculateModalSaleExclusiveRate() {
+            const inclusiveRateEl = document.getElementById('productSaleRateInclusive');
+            const exclusiveRateEl = document.getElementById('productSaleRate');
+            const cgst = parseFloat(document.getElementById('productCGST').value) || 0;
+            const sgst = parseFloat(document.getElementById('productSGST').value) || 0;
             const totalGstPercent = cgst + sgst;
             const inclusiveRate = parseFloat(inclusiveRateEl.value);
 
@@ -1372,30 +1379,37 @@
             }
         }
 
-        async function addProduct() {
+        async function saveProduct() {
+            const productId = document.getElementById('editProductId').value;
+            const isEditing = !!productId;
+
             const product = {
-                name: document.getElementById('newProductName').value,
-                packaging: document.getElementById('newPackaging').value,
-                hsn: document.getElementById('newHSN').value,
-                batch: document.getElementById('newBatch').value,
-                quantity: parseInt(document.getElementById('newQuantity').value),
-                mrp: parseFloat(document.getElementById('newMRP').value),
-                saleRate: parseFloat(document.getElementById('newSaleRate').value),
-                saleRateInclusive: parseFloat(document.getElementById('newSaleRateInclusive').value),
-                expiry: document.getElementById('newExpiry').value,
-                cgst: parseFloat(document.getElementById('newCGST').value),
-                sgst: parseFloat(document.getElementById('newSGST').value)
+                name: document.getElementById('productName').value,
+                packaging: document.getElementById('productPackaging').value,
+                hsn: document.getElementById('productHSN').value,
+                batch: document.getElementById('productBatch').value,
+                quantity: parseInt(document.getElementById('productQuantity').value),
+                mrp: parseFloat(document.getElementById('productMRP').value),
+                purchase_rate: parseFloat(document.getElementById('productPurchaseRate').value),
+                saleRate: parseFloat(document.getElementById('productSaleRate').value),
+                saleRateInclusive: parseFloat(document.getElementById('productSaleRateInclusive').value),
+                expiry: document.getElementById('productExpiry').value,
+                cgst: parseFloat(document.getElementById('productCGST').value),
+                sgst: parseFloat(document.getElementById('productSGST').value)
             };
 
             if (!product.name || !product.hsn || !product.batch || isNaN(product.quantity) || 
-                isNaN(product.mrp) || isNaN(product.saleRate) || !product.expiry) {
+                isNaN(product.mrp) || isNaN(product.purchase_rate) || isNaN(product.saleRate) || !product.expiry) {
                 showAlert('Please fill all required fields!', 'danger');
                 return;
             }
 
+            const url = isEditing ? `${API_BASE_URL}/products/${productId}` : `${API_BASE_URL}/products`;
+            const method = isEditing ? 'PUT' : 'POST';
+
             try {
-                const response = await fetch(`${API_BASE_URL}/products`, {
-                    method: 'POST',
+                const response = await fetch(url, {
+                    method: method,
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(product)
                 });
@@ -1409,22 +1423,23 @@
                     showAlert(result.error, 'danger');
                 }
             } catch (error) {
-                showAlert('Failed to add product.', 'danger');
+                showAlert(`Failed to ${isEditing ? 'update' : 'add'} product.`, 'danger');
             }
         }
 
         function clearProductForm() {
-            document.getElementById('newProductName').value = '';
-            document.getElementById('newPackaging').value = packagingTypes[0];
-            document.getElementById('newHSN').value = '';
-            document.getElementById('newBatch').value = '';
-            document.getElementById('newQuantity').value = '';
-            document.getElementById('newMRP').value = '';
-            document.getElementById('newSaleRateInclusive').value = '';
-            document.getElementById('newSaleRate').value = '';
-            document.getElementById('newExpiry').value = '';
-            document.getElementById('newCGST').value = '6';
-            document.getElementById('newSGST').value = '6';
+            document.getElementById('productName').value = '';
+            document.getElementById('productPackaging').value = packagingTypes[0];
+            document.getElementById('productHSN').value = '';
+            document.getElementById('productBatch').value = '';
+            document.getElementById('productQuantity').value = '';
+            document.getElementById('productMRP').value = '';
+            document.getElementById('productPurchaseRate').value = '';
+            document.getElementById('productSaleRateInclusive').value = '';
+            document.getElementById('productSaleRate').value = '';
+            document.getElementById('productExpiry').value = '';
+            document.getElementById('productCGST').value = '6';
+            document.getElementById('productSGST').value = '6';
         }
 
         function updateInventoryTable(data) {
@@ -1441,8 +1456,10 @@
             data.forEach(product => {
                 const row = document.createElement('tr');
                 let rowClass = '';
-                const expiryDate = new Date(`${product.expiry}-01`);
-                if (expiryDate < today) rowClass = 'expired-item';
+                if (product.expiry) {
+                    const expiryDate = new Date(`${product.expiry}-01`);
+                    if (expiryDate < today) rowClass = 'expired-item';
+                }
                 if (product.quantity <= (settings.lowStockThreshold || 10)) {
                     rowClass += ' low-stock';
                 }
@@ -1469,13 +1486,12 @@
 
         async function searchInventory() {
             const query = document.getElementById('inventorySearch').value.toLowerCase();
-            try {
-                const response = await fetch(`${API_BASE_URL}/products/search?query=${query}`);
-                const filtered = await response.json();
-                updateInventoryTable(filtered);
-            } catch (error) {
-                showAlert('Failed to search inventory.', 'danger');
-            }
+            const filtered = inventory.filter(p => 
+                p.name.toLowerCase().includes(query) ||
+                p.batch.toLowerCase().includes(query) ||
+                p.hsn.toLowerCase().includes(query)
+            );
+            updateInventoryTable(filtered);
         }
         
         function applyExpiryFilter(filterType, element) {
@@ -1484,36 +1500,35 @@
             filterExpiring(filterType);
         }
 
-        async function filterExpiring(filterType) {
+        function filterExpiring(filterType) {
             if (filterType === 'none') {
-                fetchInventory();
+                updateInventoryTable(inventory);
                 return;
             }
-            try {
-                const allProducts = await fetch(`${API_BASE_URL}/products`).then(res => res.json());
-                const today = new Date();
-                let filteredProducts = [];
-                if (filterType === 'expired') {
-                    filteredProducts = allProducts.filter(p => p.expiry && new Date(`${p.expiry}-01`) < today);
-                } else {
-                    const months = { 'thisMonth': 1, 'next2months': 2, 'next3months': 3 }[filterType];
-                    const futureDate = new Date();
-                    futureDate.setMonth(futureDate.getMonth() + months);
-                    filteredProducts = allProducts.filter(p => {
-                        if (!p.expiry) return false;
-                        const expiryDate = new Date(`${p.expiry}-01`);
-                        return expiryDate >= today && expiryDate <= futureDate;
-                    });
-                }
-                updateInventoryTable(filteredProducts);
-                showAlert(`Showing products expiring based on filter.`, 'info');
-            } catch (error) {
-                showAlert('Failed to filter products.', 'danger');
+            
+            const today = new Date();
+            today.setHours(0, 0, 0, 0);
+            let filteredProducts = [];
+
+            if (filterType === 'expired') {
+                filteredProducts = inventory.filter(p => p.expiry && new Date(`${p.expiry}-01`) < today);
+            } else {
+                const months = { 'thisMonth': 1, 'next2months': 2, 'next3months': 3 }[filterType];
+                const futureDate = new Date(today);
+                futureDate.setMonth(futureDate.getMonth() + months);
+                
+                filteredProducts = inventory.filter(p => {
+                    if (!p.expiry) return false;
+                    const expiryDate = new Date(`${p.expiry}-01`);
+                    return expiryDate >= today && expiryDate < futureDate;
+                });
             }
+            updateInventoryTable(filteredProducts);
+            showAlert(`Showing products based on expiry filter.`, 'info');
         }
 
         async function deleteProduct(id) {
-            if (confirm('Are you sure you want to delete this product?')) {
+            if (confirm('Are you sure you want to delete this product? This action cannot be undone.')) {
                 try {
                     const response = await fetch(`${API_BASE_URL}/products/${id}`, { method: 'DELETE' });
                     const result = await response.json();
@@ -1532,37 +1547,39 @@
 
         async function editProduct(id) {
             try {
-                const product = await fetch(`${API_BASE_URL}/products/${id}`).then(res => res.json());
-                const newQuantity = prompt(`Enter new quantity for ${product.name} (Current: ${product.quantity}):`);
-                if (newQuantity !== null && !isNaN(newQuantity) && parseInt(newQuantity) >= 0) {
-                    const response = await fetch(`${API_BASE_URL}/products/${id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ quantity: parseInt(newQuantity) })
-                    });
-                    const result = await response.json();
-                    if (response.ok) {
-                        showAlert(result.message, 'success');
-                        await fetchInventory();
-                        await fetchDashboardData();
-                    } else {
-                        showAlert(result.error, 'danger');
-                    }
-                } else if (newQuantity !== null) {
-                    showAlert('Invalid quantity entered!', 'danger');
-                }
+                const response = await fetch(`${API_BASE_URL}/products/${id}`);
+                if (!response.ok) throw new Error('Product not found');
+                const product = await response.json();
+
+                document.getElementById('productModalTitle').textContent = `Edit Product: ${product.name}`;
+                document.getElementById('productModalSaveBtn').textContent = 'Save Changes';
+                document.getElementById('editProductId').value = product.id;
+                
+                document.getElementById('productName').value = product.name;
+                document.getElementById('productPackaging').value = product.packaging;
+                document.getElementById('productHSN').value = product.hsn;
+                document.getElementById('productBatch').value = product.batch;
+                document.getElementById('productQuantity').value = product.quantity;
+                document.getElementById('productMRP').value = product.mrp;
+                document.getElementById('productPurchaseRate').value = product.purchase_rate;
+                document.getElementById('productSaleRateInclusive').value = product.sale_rate_inclusive;
+                document.getElementById('productExpiry').value = product.expiry;
+                document.getElementById('productCGST').value = product.cgst;
+                document.getElementById('productSGST').value = product.sgst;
+                
+                calculateModalSaleExclusiveRate(); // Calculate exclusive rate based on loaded values
+
+                document.getElementById('addProductModal').classList.add('active');
             } catch (error) {
-                showAlert('Failed to edit product.', 'danger');
+                showAlert('Failed to fetch product details for editing.', 'danger');
+                console.error('Edit Product Error:', error);
             }
         }
 
         async function checkLowStock() {
-            const allProducts = await fetch(`${API_BASE_URL}/products`).then(res => res.json());
-            const lowStock = allProducts.filter(p => p.quantity <= settings.lowStockThreshold);
-            const message = lowStock.length > 0
-                ? `Low stock products (<= ${settings.lowStockThreshold}): \n\n${lowStock.map(p => `${p.name} (Qty: ${p.quantity})`).join('\n')}`
-                : 'All products are well stocked.';
-            alert(message);
+            const lowStock = inventory.filter(p => p.quantity <= (settings.lowStockThreshold || 10));
+            updateInventoryTable(lowStock);
+            showAlert(`Showing ${lowStock.length} products with low stock (<= ${settings.lowStockThreshold}). Click 'Show All' to clear filter.`, 'warning');
         }
 
         // Billing Logic
@@ -1574,22 +1591,24 @@
                 dropdown.style.display = 'none';
                 return;
             }
-            try {
-                const filteredProducts = await fetch(`${API_BASE_URL}/products/search?query=${encodeURIComponent(query)}`).then(res => res.json());
-                if (filteredProducts.length > 0) {
-                    filteredProducts.forEach(product => {
-                        const item = document.createElement('div');
-                        item.textContent = `${product.name} - Batch: ${product.batch} (Qty: ${product.quantity})`;
-                        item.onclick = () => selectProduct(product);
-                        dropdown.appendChild(item);
-                    });
-                    dropdown.style.display = 'block';
-                } else {
-                    dropdown.innerHTML = '<div>No products found</div>';
-                    dropdown.style.display = 'block';
-                }
-            } catch (error) {
-                dropdown.innerHTML = '<div>Error searching</div>';
+             // Search local, up-to-date inventory first
+            const filteredProducts = inventory.filter(p => 
+                p.quantity > 0 && (
+                    p.name.toLowerCase().includes(query) || 
+                    p.batch.toLowerCase().includes(query)
+                )
+            ).slice(0, 50);
+
+            if (filteredProducts.length > 0) {
+                filteredProducts.forEach(product => {
+                    const item = document.createElement('div');
+                    item.textContent = `${product.name} - Batch: ${product.batch} (Qty: ${product.quantity})`;
+                    item.onclick = () => selectProduct(product);
+                    dropdown.appendChild(item);
+                });
+                dropdown.style.display = 'block';
+            } else {
+                dropdown.innerHTML = '<div>No products found</div>';
                 dropdown.style.display = 'block';
             }
         }
@@ -1599,10 +1618,12 @@
         }
 
         document.addEventListener('click', (event) => {
-            if (!document.querySelector('.select-wrapper').contains(event.target)) {
+            if (!event.target.closest('.select-wrapper')) {
                 document.getElementById('billProductDropdown').style.display = 'none';
+                document.getElementById('patientNameDropdown').style.display = 'none';
             }
         });
+
 
         function selectProduct(product) {
             document.getElementById('billProductSearch').value = `${product.name} - ${product.batch}`;
@@ -1629,8 +1650,8 @@
             }
 
             const product = inventory.find(p => p.id === productId);
-            if (quantity > product.quantity) {
-                showAlert(`Not enough stock. Only ${product.quantity} available.`, 'danger');
+            if (!product || quantity > product.quantity) {
+                showAlert(`Not enough stock. Only ${product ? product.quantity : 0} available.`, 'danger');
                 return;
             }
 
@@ -1758,9 +1779,17 @@
                 const result = await response.json();
                 if (response.ok) {
                     showAlert('Bill generated successfully!', 'success');
+                    
+                    bill.items.forEach(billedItem => {
+                        const inventoryItem = inventory.find(invItem => invItem.id === billedItem.product_id);
+                        if (inventoryItem) {
+                            inventoryItem.quantity -= billedItem.quantity;
+                        }
+                    });
+
                     const savedBill = await fetch(`${API_BASE_URL}/bills/${result.id}`).then(res => res.json());
                     displayInvoice(savedBill);
-                    await fetchInventory();
+                    await fetchInventory(); 
                     await fetchDashboardData();
                     clearBill();
                 } else {
@@ -1785,6 +1814,10 @@
             const rounded = Math.round(Number(bill.grand_total));
             const rounding = rounded - Number(bill.grand_total);
 
+            const discountPercentHtml = bill.overall_discount_percent > 0 
+                ? `<div class="total-row"><span>Overall Discount %:</span><span>${bill.overall_discount_percent}%</span></div>` 
+                : '';
+
             document.getElementById('invoiceContent').innerHTML = `
                 <div class="bill-header"> <h2>Invoice</h2> <h1>${settings.shopName}</h1> <p>GST: ${settings.gst} | Ph: ${settings.phone}</p> <p>${settings.address}</p> </div>
                 <div class="bill-details" style="display: flex; justify-content: space-between;"> <div><strong>Bill No:</strong> ${bill.bill_number}</div> <div><strong>Date:</strong> ${formatDateForDisplay(bill.bill_date)}</div> </div>
@@ -1793,7 +1826,8 @@
                 <table style="margin-top: 20px;"> <thead> <tr> <th>Product</th> <th>Batch</th> <th>Exp</th> <th>MRP</th> <th>Qty</th> <th>Rate</th> <th>Disc %</th> <th>GST</th> <th>Amount</th> </tr> </thead> <tbody> ${itemsHtml} </tbody> </table>
                 <div class="total-section">
                     <div class="total-row"><span>Subtotal:</span><span>₹${Number(bill.subtotal).toFixed(2)}</span></div>
-                    <div class="total-row"><span>Discount:</span><span>₹${Number(bill.total_discount).toFixed(2)}</span></div>
+                    ${discountPercentHtml}
+                    <div class="total-row"><span>Total Discount:</span><span>₹${Number(bill.total_discount).toFixed(2)}</span></div>
                     <div class="total-row"><span>CGST:</span><span>₹${Number(bill.total_cgst).toFixed(2)}</span></div>
                     <div class="total-row"><span>SGST:</span><span>₹${Number(bill.total_sgst).toFixed(2)}</span></div>
                     <div class="total-row"><span>Rounding:</span><span>₹${rounding.toFixed(2)}</span></div>
@@ -1896,7 +1930,7 @@
                          html += `<tr>${headers.map(h => {
                              const val = row[h];
                              let displayVal = val === null || val === undefined ? '' : val;
-                             const isCurrency = typeof parseFloat(val) === 'number' && !isNaN(parseFloat(val)) && (h.includes('rate') || h.includes('amount') || h.includes('total') || h.includes('mrp') || h.includes('gst'));
+                             const isCurrency = typeof val === 'number' && (h.includes('rate') || h.includes('amount') || h.includes('total') || h.includes('mrp') || h.includes('gst') || h.includes('subtotal') || h.includes('value'));
                              if(isCurrency) {
                                  displayVal = '₹' + parseFloat(val).toFixed(2);
                              } else if (h.includes('date')) { // Format dates in reports too
@@ -2167,7 +2201,7 @@
              const inclRate = parseFloat(document.getElementById('purchaseSaleRateIncl').value) || 0;
              const saleGst = parseFloat(document.getElementById('purchaseSaleGstPercent').value) || 0;
              const exclRateEl = document.getElementById('purchaseSaleRateExcl');
-             if(inclRate > 0 && saleGst > 0) {
+             if(inclRate > 0 && saleGst >= 0) {
                  exclRateEl.value = (inclRate / (1 + (saleGst/100))).toFixed(2);
              } else {
                  exclRateEl.value = '';
@@ -2199,7 +2233,9 @@
                 igst: purchaseTaxType === 'IGST' ? purchaseGst : 0,
             };
             
-            if (!item.productName || !item.batch || isNaN(item.quantity) || item.quantity <= 0 || isNaN(item.purchaseRate) || isNaN(item.saleRate)) {
+            if (!item.productName || !item.batch || !item.hsn || !item.expiry ||
+                isNaN(item.quantity) || item.quantity <= 0 || 
+                isNaN(item.purchaseRate) || isNaN(item.saleRate) || isNaN(item.saleRateIncl) || isNaN(item.mrp)) {
                  showAlert('Please fill all required product fields (*) with valid values.', 'danger');
                  return;
             }
@@ -2438,9 +2474,14 @@
                 showAlert('Failed to search customers.', 'danger');
             }
         }
+        
         async function showEditCustomerModal(id) {
             try {
                 const response = await fetch(`${API_BASE_URL}/customers/${id}`);
+                 if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error || 'Customer not found');
+                }
                 const customer = await response.json();
                 document.getElementById('editCustomerId').value = customer.id;
                 document.getElementById('editCustomerName').value = customer.name;
@@ -2493,7 +2534,10 @@
             }
         }
         async function searchCustomer() {
-            const query = document.getElementById('patientName').value.trim() || document.getElementById('patientMobile').value.trim();
+            const nameQuery = document.getElementById('patientName').value.trim();
+            const mobileQuery = document.getElementById('patientMobile').value.trim();
+            const query = nameQuery || mobileQuery;
+
             const dropdown = document.getElementById('patientNameDropdown');
             dropdown.innerHTML = '';
             if (query.length < 2) {
@@ -2501,7 +2545,7 @@
                 return;
             }
             try {
-                const response = await fetch(`${API_BASE_URL}/customers/search?query=${query}`);
+                const response = await fetch(`${API_BASE_URL}/customers/search?query=${encodeURIComponent(query)}`);
                 const customers = await response.json();
                 if (customers.length > 0) {
                     customers.forEach(customer => {
@@ -2527,3 +2571,4 @@
     </script>
 </body>
 </html>
+
