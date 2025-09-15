@@ -81,11 +81,17 @@ id INT AUTO_INCREMENT PRIMARY KEY,
 supplier_name VARCHAR(255) NOT NULL,
 bill_number VARCHAR(255) NOT NULL,
 bill_date DATE NOT NULL,
-total_amount DECIMAL(10, 2) NOT NULL,
 tax_type VARCHAR(10) NOT NULL, -- 'IGST' or 'CSGST'
+total_pre_tax DECIMAL(10, 2) NOT NULL,
 overall_discount_percent DECIMAL(5, 2) NOT NULL DEFAULT 0,
+overall_discount_amount DECIMAL(10, 2) NOT NULL,
+taxable_amount DECIMAL(10, 2) NOT NULL,
+total_gst_amount DECIMAL(10, 2) NOT NULL,
+rounding DECIMAL(10, 2) NOT NULL,
+grand_total DECIMAL(10, 2) NOT NULL,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
 
 -- Create the purchase_bill_items table
 CREATE TABLE purchase_bill_items (
@@ -96,6 +102,7 @@ hsn VARCHAR(255) NOT NULL,
 batch VARCHAR(255) NOT NULL,
 packaging VARCHAR(50),
 quantity INT NOT NULL,
+free_quantity INT NOT NULL DEFAULT 0,
 mrp DECIMAL(10, 2) NOT NULL,
 purchase_rate DECIMAL(10, 2) NOT NULL,
 sale_rate DECIMAL(10, 2) NOT NULL, -- Exclusive of GST
@@ -123,4 +130,3 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('email', 'genericartcr@gmail.com'),
 ('address', 'Near MBB Club, Shivnagar, 799001'),
 ('lowStockThreshold', '10');
-

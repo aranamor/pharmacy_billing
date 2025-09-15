@@ -243,6 +243,7 @@
             box-shadow: 0 2px 10px rgba(0,0,0,0.1);
             border-radius: 8px;
             overflow: hidden;
+            font-size: 12px;
         }
 
         thead {
@@ -251,13 +252,21 @@
         }
 
         th, td {
-            padding: 12px;
+            padding: 10px;
             text-align: left;
             border-bottom: 1px solid #dee2e6;
         }
 
         tbody tr:hover {
             background: #f8f9fa;
+        }
+        
+        td input {
+            width: 100%;
+            padding: 4px;
+            font-size: 12px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
         }
 
         .inventory-actions {
@@ -1002,6 +1011,10 @@
                     <label>Quantity *</label>
                     <input type="number" id="purchaseQty" min="1">
                 </div>
+                 <div class="form-group">
+                    <label>Free Qty</label>
+                    <input type="number" id="purchaseFreeQty" min="0" value="0">
+                </div>
                 <div class="form-group">
                     <label>Expiry *</label>
                     <input type="month" id="purchaseExpiry">
@@ -1048,30 +1061,45 @@
                             <th>Product</th>
                             <th>Batch</th>
                             <th>Qty</th>
+                            <th>Free</th>
                             <th>Rate</th>
-                            <th>Subtotal</th>
                             <th>Disc %</th>
-                            <th>GST</th>
-                            <th>Amount</th>
+                            <th>Disc Amt</th>
+                            <th>Taxable</th>
+                            <th>GST %</th>
+                            <th>GST Amt</th>
+                            <th>Total</th>
                             <th>Action</th>
                         </tr>
                     </thead>
                     <tbody id="purchaseItemsBody">
-                        <tr><td colspan="9" style="text-align: center;">No items added</td></tr>
+                        <tr><td colspan="12" style="text-align: center;">No items added</td></tr>
                     </tbody>
                 </table>
                 <div class="total-section" style="margin-top:10px;">
                      <div class="total-row">
-                        <span>Total (Pre-rounding):</span>
-                        <span id="purchaseTotalAmount">₹0.00</span>
-                    </div>
-                    <div class="total-row">
-                        <span>Rounding:</span>
-                        <span id="purchaseRoundingAmount">₹0.00</span>
+                        <span>Total (Pre-Tax):</span>
+                        <span id="purchaseTotalPreTax">₹0.00</span>
                     </div>
                     <div class="total-row" style="align-items: center;">
                         <label for="purchaseOverallDiscountPercent" style="font-weight: bold;">Overall Discount (%):</label>
                         <input type="number" id="purchaseOverallDiscountPercent" value="0" min="0" oninput="calculatePurchaseTotal()" style="width: 80px; padding: 5px; text-align: right;">
+                    </div>
+                    <div class="total-row">
+                        <span>Discount Amount:</span>
+                        <span id="purchaseOverallDiscountAmount">₹0.00</span>
+                    </div>
+                    <div class="total-row">
+                        <span>Taxable Amount:</span>
+                        <span id="purchaseTaxableAmount">₹0.00</span>
+                    </div>
+                    <div class="total-row">
+                        <span>Total GST:</span>
+                        <span id="purchaseTotalGstAmount">₹0.00</span>
+                    </div>
+                    <div class="total-row">
+                        <span>Rounding:</span>
+                        <span id="purchaseRoundingAmount">₹0.00</span>
                     </div>
                     <div class="total-row">
                         <strong><span>Grand Total:</span></strong>
@@ -1775,19 +1803,14 @@
         }
 
         function printInvoice() {
-            const invoiceContent = document.getElementById('invoiceContent').innerHTML;
-            const originalContent = document.body.innerHTML;
-
-            // Replace body with only invoice
-            document.body.innerHTML = invoiceContent;
-
-            // Print just the invoice
-            window.print();
-
-            // Restore original page
-            document.body.innerHTML = originalContent;
+            const printWindow = window.open('', '', 'height=600,width=800');
+            printWindow.document.write('<html><head><title>Invoice</title>');
+            printWindow.document.write('<style> body { font-family: sans-serif; } table { width: 100%; border-collapse: collapse; } th, td { padding: 8px; border: 1px solid #ddd; } .total-section { margin-top: 20px; } .total-row { display: flex; justify-content: space-between; padding: 5px 0; } </style>');
+            printWindow.document.write('</head><body>');
+            printWindow.document.write(document.getElementById('invoiceContent').innerHTML);
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
             
-            // Use a small timeout to ensure content is loaded before print dialog opens
             setTimeout(() => {
                 printWindow.print();
                 printWindow.close();
@@ -1807,7 +1830,6 @@
         }
 
         // Dashboard & Reporting
-        // FIX: The dashboard data is now fetched from a dedicated, reliable server endpoint.
         async function fetchDashboardData() {
             try {
                 const response = await fetch(`${API_BASE_URL}/dashboard-stats`);
@@ -1905,9 +1927,6 @@
             const billsBody = document.getElementById('billsBody');
             billsBody.innerHTML = '';
 
-            // FIX: Add a robust check to ensure `bills` is an array.
-            // This directly prevents the "bills.forEach is not a function" error if the API
-            // returns an error object or something other than an array.
             if (!Array.isArray(bills)) {
                 console.error("Error: Expected an array of bills, but received:", bills);
                 billsBody.innerHTML = '<tr><td colspan="5" style="text-align:center; color: red;">Could not load bills. Invalid data received.</td></tr>';
@@ -2100,7 +2119,7 @@
                 row.innerHTML = `
                     <td>${bill.bill_number}</td> <td>${bill.supplier_name}</td>
                     <td>${formatDateForDisplay(bill.bill_date)}</td> <td>${bill.tax_type}</td>
-                    <td>₹${Number(bill.total_amount).toFixed(2)}</td>
+                    <td>₹${Number(bill.grand_total).toFixed(2)}</td>
                     <td><button class="btn btn-info btn-sm" onclick="viewPurchaseBill(${bill.id})">👁️ View</button></td>
                 `;
                 tableBody.appendChild(row);
@@ -2113,17 +2132,14 @@
             document.getElementById('purchaseSupplierName').value = '';
             document.getElementById('purchaseBillNumber').value = '';
             
-            // FIX: Fetch the current IST date from the server to set as the default.
             try {
     		const response = await fetch(`${API_BASE_URL}/current-ist-date`);
     		const data = await response.json();
-    		// Correctly access the 'currentDate' property from the JSON object
     		document.getElementById('purchaseBillDate').value = data.currentDate;
 	    } catch (error) {
     		console.error("Could not fetch current date, falling back to local date.", error);
-    		// Fallback in case of network error
     	        document.getElementById('purchaseBillDate').valueAsDate = new Date();
-	}
+	    }
 
             clearPurchaseProductForm();
             updatePurchaseItemsTable();
@@ -2136,6 +2152,7 @@
             document.getElementById('purchaseHSN').value = '';
             document.getElementById('purchaseBatch').value = '';
             document.getElementById('purchaseQty').value = '';
+            document.getElementById('purchaseFreeQty').value = '0';
             document.getElementById('purchaseMRP').value = '';
             document.getElementById('purchaseRate').value = '';
             document.getElementById('purchaseGstPercent').value = '12';
@@ -2168,6 +2185,7 @@
                 hsn: document.getElementById('purchaseHSN').value,
                 batch: document.getElementById('purchaseBatch').value,
                 quantity: parseInt(document.getElementById('purchaseQty').value),
+                freeQuantity: parseInt(document.getElementById('purchaseFreeQty').value) || 0,
                 mrp: parseFloat(document.getElementById('purchaseMRP').value),
                 purchaseRate: parseFloat(document.getElementById('purchaseRate').value),
                 discount: parseFloat(document.getElementById('purchaseDiscount').value),
@@ -2181,16 +2199,10 @@
                 igst: purchaseTaxType === 'IGST' ? purchaseGst : 0,
             };
             
-            if (!item.productName || !item.batch || isNaN(item.quantity) || isNaN(item.purchaseRate) || isNaN(item.saleRate)) {
-                 showAlert('Please fill all required product fields (*).', 'danger');
+            if (!item.productName || !item.batch || isNaN(item.quantity) || item.quantity <= 0 || isNaN(item.purchaseRate) || isNaN(item.saleRate)) {
+                 showAlert('Please fill all required product fields (*) with valid values.', 'danger');
                  return;
             }
-
-            const baseAmount = item.purchaseRate * item.quantity;
-            item.subtotal = baseAmount;
-            const discountedAmount = baseAmount * (1 - (item.discount / 100));
-            const gstAmount = discountedAmount * (purchaseGst / 100);
-            item.amount = discountedAmount + gstAmount;
             
             purchaseBillItems.push(item);
             updatePurchaseItemsTable();
@@ -2203,21 +2215,31 @@
             const tableBody = document.getElementById('purchaseItemsBody');
             tableBody.innerHTML = '';
             if (purchaseBillItems.length === 0) {
-                tableBody.innerHTML = '<tr><td colspan="9" style="text-align: center;">No items added</td></tr>';
+                tableBody.innerHTML = '<tr><td colspan="12" style="text-align: center;">No items added</td></tr>';
                 return;
             }
             purchaseBillItems.forEach((item, index) => {
-                const gstText = item.igst > 0 ? `${item.igst}% (IGST)` : `${item.cgst + item.sgst}% (C/SGST)`;
+                const baseAmount = (item.purchaseRate || 0) * (item.quantity || 0);
+                const discountAmount = baseAmount * ((item.discount || 0) / 100);
+                const taxableAmount = baseAmount - discountAmount;
+                const gstPercent = (item.igst > 0 ? item.igst : (item.cgst + item.sgst));
+                const gstAmount = taxableAmount * (gstPercent / 100);
+                const totalAmount = taxableAmount + gstAmount;
+                const gstText = item.igst > 0 ? `${item.igst}% I` : `${item.cgst + item.sgst}% C/S`;
+
                 const row = document.createElement('tr');
                 row.innerHTML = `
                     <td>${item.productName}</td>
                     <td>${item.batch}</td>
                     <td>${item.quantity}</td>
-                    <td>₹${item.purchaseRate.toFixed(2)}</td>
-                    <td>₹${item.subtotal.toFixed(2)}</td>
+                    <td>${item.freeQuantity}</td>
+                    <td>₹${Number(item.purchaseRate).toFixed(2)}</td>
                     <td>${item.discount.toFixed(2)}%</td>
+                    <td>₹${discountAmount.toFixed(2)}</td>
+                    <td>₹${taxableAmount.toFixed(2)}</td>
                     <td>${gstText}</td>
-                    <td>₹${item.amount.toFixed(2)}</td>
+                    <td>₹${gstAmount.toFixed(2)}</td>
+                    <td>₹${totalAmount.toFixed(2)}</td>
                     <td><button class="btn btn-danger btn-sm" onclick="removeProductFromPurchase(${index})">🗑️</button></td>
                 `;
                 tableBody.appendChild(row);
@@ -2233,24 +2255,35 @@
         function calculatePurchaseTotal() {
             const overallDiscountPercent = Number(document.getElementById('purchaseOverallDiscountPercent').value) || 0;
             
-            let total = 0;
+            let totalPreTax = 0;
+            let totalGstAmount = 0;
+
             purchaseBillItems.forEach(item => {
-                const base = item.purchaseRate * item.quantity;
-                const itemDiscounted = base * (1 - (item.discount / 100));
-
-                const overallDiscountAmount = itemDiscounted * (overallDiscountPercent / 100);
-                const finalDiscounted = itemDiscounted - overallDiscountAmount;
-
-                const totalGstPercent = item.igst > 0 ? item.igst : (item.cgst + item.sgst);
-                const gstAmount = finalDiscounted * (totalGstPercent / 100);
-                
-                total += finalDiscounted + gstAmount;
+                const base = (item.purchaseRate || 0) * (item.quantity || 0);
+                const itemTaxable = base * (1 - ((item.discount || 0) / 100));
+                totalPreTax += itemTaxable;
             });
 
-            const roundedTotal = Math.round(total);
-            const rounding = roundedTotal - total;
+            const overallDiscountAmount = totalPreTax * (overallDiscountPercent / 100);
+            const taxableAmount = totalPreTax - overallDiscountAmount;
 
-            document.getElementById('purchaseTotalAmount').textContent = `₹${total.toFixed(2)}`;
+            purchaseBillItems.forEach(item => {
+                const base = (item.purchaseRate || 0) * (item.quantity || 0);
+                const itemTaxableAfterItemDisc = base * (1 - ((item.discount || 0) / 100));
+                const itemFinalTaxable = itemTaxableAfterItemDisc * (1 - (overallDiscountPercent / 100));
+                const gstPercent = item.igst > 0 ? item.igst : (item.cgst + item.sgst);
+                const itemGstAmount = itemFinalTaxable * (gstPercent / 100);
+                totalGstAmount += itemGstAmount;
+            });
+
+            const totalBeforeRounding = taxableAmount + totalGstAmount;
+            const roundedTotal = Math.round(totalBeforeRounding);
+            const rounding = roundedTotal - totalBeforeRounding;
+
+            document.getElementById('purchaseTotalPreTax').textContent = `₹${totalPreTax.toFixed(2)}`;
+            document.getElementById('purchaseOverallDiscountAmount').textContent = `₹${overallDiscountAmount.toFixed(2)}`;
+            document.getElementById('purchaseTaxableAmount').textContent = `₹${taxableAmount.toFixed(2)}`;
+            document.getElementById('purchaseTotalGstAmount').textContent = `₹${totalGstAmount.toFixed(2)}`;
             document.getElementById('purchaseRoundingAmount').textContent = `₹${rounding.toFixed(2)}`;
             document.getElementById('purchaseGrandTotal').textContent = `₹${roundedTotal.toFixed(2)}`;
         }
@@ -2296,7 +2329,7 @@
                 const itemsHtml = bill.items.map(item => `
                     <tr>
                         <td>${item.product_name}</td> <td>${item.packaging || ''}</td> <td>${item.batch}</td>
-                        <td>${item.quantity}</td> <td>₹${Number(item.purchase_rate).toFixed(2)}</td> <td>${item.discount || 0}%</td>
+                        <td>${item.quantity}</td> <td>${item.free_quantity || 0}</td> <td>₹${Number(item.purchase_rate).toFixed(2)}</td> <td>${item.discount || 0}%</td>
                         <td>${item.igst > 0 ? item.igst + '% (IGST)' : (item.cgst + item.sgst) + '%'}</td>
                         <td>₹${Number(item.amount).toFixed(2)}</td>
                     </tr>
@@ -2308,8 +2341,15 @@
                     <p><strong>Date:</strong> ${formatDateForDisplay(bill.bill_date)}</p>
                     <p><strong>Tax Type:</strong> ${bill.tax_type}</p>
                     <h4 style="margin-top:20px;">Items</h4>
-                    <table> <thead> <tr> <th>Product</th> <th>Pkg</th> <th>Batch</th> <th>Qty</th> <th>Rate</th> <th>Disc</th> <th>GST</th> <th>Amount</th> </tr> </thead> <tbody>${itemsHtml}</tbody> </table>
-                    <h3 style="text-align:right; margin-top:10px;">Total: ₹${Number(bill.total_amount).toFixed(2)}</h3>
+                    <table> <thead> <tr> <th>Product</th> <th>Pkg</th> <th>Batch</th> <th>Qty</th> <th>Free</th> <th>Rate</th> <th>Disc</th> <th>GST</th> <th>Amount</th> </tr> </thead> <tbody>${itemsHtml}</tbody> </table>
+                    <div class="total-section" style="margin-top:10px;">
+                        <div class="total-row"><span>Total (Pre-Tax):</span><span>₹${Number(bill.total_pre_tax).toFixed(2)}</span></div>
+                        <div class="total-row"><span>Overall Discount:</span><span>₹${Number(bill.overall_discount_amount).toFixed(2)} (${bill.overall_discount_percent}%)</span></div>
+                        <div class="total-row"><span>Taxable Amount:</span><span>₹${Number(bill.taxable_amount).toFixed(2)}</span></div>
+                        <div class="total-row"><span>Total GST:</span><span>₹${Number(bill.total_gst_amount).toFixed(2)}</span></div>
+                        <div class="total-row"><span>Rounding:</span><span>₹${Number(bill.rounding).toFixed(2)}</span></div>
+                        <div class="total-row"><strong><span>Grand Total:</span></strong><strong><span>₹${Number(bill.grand_total).toFixed(2)}</span></strong></div>
+                    </div>
                 `;
                 document.getElementById('viewPurchaseModal').classList.add('active');
             } catch (error) {
@@ -2318,16 +2358,11 @@
         }
         
         // Helper Functions & Customer Management
-        // FIX: This function is now robust and correctly formats the TIMESTAMP from the server.
-        // It creates a Date object, which correctly interprets the ISO 8601 format (including 'Z' for UTC),
-        // and then extracts the local day, month, and year for display.
         function formatDateForDisplay(dateString) {
             if (!dateString) return 'N/A';
-            // Create a date object. The string from MySQL TIMESTAMP will be in ISO format
-            // and correctly parsed by the Date constructor.
             const date = new Date(dateString);
             const day = String(date.getDate()).padStart(2, '0');
-            const month = String(date.getMonth() + 1).padStart(2, '0'); // Months are 0-based
+            const month = String(date.getMonth() + 1).padStart(2, '0');
             const year = date.getFullYear();
             return `${day}/${month}/${year}`;
         }
@@ -2349,8 +2384,6 @@
         }
 
         function setTodayDate() {
-            // This correctly sets the report dates to the user's local "today",
-            // which is the desired behavior for filtering.
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('reportFromDate').value = today;
             document.getElementById('reportToDate').value = today;
@@ -2494,4 +2527,3 @@
     </script>
 </body>
 </html>
-

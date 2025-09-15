@@ -38,9 +38,6 @@ const DB_CONFIG = {
     waitForConnections: true,
     connectionLimit: 10,
     queueLimit: 0,
-    // FIX: Set connection timezone to IST (+05:30).
-    // This is the most critical change. It ensures all date/time functions
-    // like NOW(), CURDATE(), and CURRENT_TIMESTAMP operate in IST for this connection.
     timezone: '+05:30'
 };
 // --------------------------------------------------------------------
@@ -48,7 +45,6 @@ const DB_CONFIG = {
 let pool;
 async function initDb() {
     pool = mysql.createPool(DB_CONFIG);
-    // optional quick check
     const conn = await pool.getConnection();
     await conn.ping();
     conn.release();
@@ -66,67 +62,53 @@ async function query(sql, params = []) {
 
 // ---------- LOGIN AND AUTHENTICATION ----------
 
-// Login endpoint
 app.post('/api/login', (req, res) => {
     const { username, password } = req.body;
     if (username === USERNAME && password === PASSWORD) {
-        req.session.loggedIn = true; // This creates and saves the session
+        req.session.loggedIn = true;
         res.json({ success: true, message: 'Login successful' });
     } else {
         res.status(401).json({ success: false, message: 'Invalid username or password' });
     }
 });
 
-// Logout endpoint for user interaction (e.g., clicking the logout button)
 app.post('/api/logout', (req, res) => {
     req.session.destroy(err => {
         if (err) {
             return res.status(500).json({ message: 'Could not log out.' });
         }
-        res.clearCookie('connect.sid'); // Ensure the cookie is cleared
+        res.clearCookie('connect.sid');
         res.json({ success: true, message: 'Logged out successfully' });
     });
 });
 
-// Special logout endpoint for navigator.sendBeacon, used on page unload
 app.post('/api/logout-beacon', (req, res) => {
     if (req.session) {
-        req.session.destroy(); // Destroy session on refresh/close
+        req.session.destroy();
     }
-    res.sendStatus(204); // No Content - beacon doesn't process responses
+    res.sendStatus(204);
 });
 
-
-// Middleware to check if the user is authenticated
 const checkAuth = (req, res, next) => {
     if (req.session && req.session.loggedIn) {
-        next(); // User is authenticated, proceed to the requested route
+        next();
     } else {
-        res.redirect('/'); // User is not authenticated, redirect to login page
+        res.redirect('/');
     }
 };
 
 // ---------- PAGE ROUTES ----------
-
-// Default route: send login page (index.html)
 app.get('/', (req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
 });
 
-// Serve bill.html (main application) only if authenticated
 app.get('/bill', checkAuth, (req, res) => {
     res.sendFile(path.join(__dirname, 'bill.html'));
 });
 
-
-// ---------- PROTECTED API ROUTES ----------
-
-// The checkAuth middleware is applied to all API routes below this line
 app.use('/api', checkAuth);
 
-
-// ---------- NEW ENDPOINT FOR CURRENT DATE ----------
-// Provides a reliable IST date for client-side defaults.
+// ---------- API ROUTES ----------
 app.get('/api/current-ist-date', async (req, res) => {
    try {
     const [rows] = await pool.query("SELECT DATE_FORMAT(NOW(), '%Y-%m-%d') as today");
@@ -137,32 +119,21 @@ app.get('/api/current-ist-date', async (req, res) => {
 }
 });
 
-
-// ---------- DASHBOARD ----------
-// FIX: New endpoint to calculate dashboard stats reliably on the server.
-// This avoids client-side timezone issues and centralizes the logic.
 app.get('/api/dashboard-stats', async (req, res) => {
     try {
-        // Use CURDATE() which will be in IST due to the connection timezone setting
         const today = 'CURDATE()';
-
         const [salesTodayResult] = await pool.query(`SELECT SUM(grand_total) as totalSales, COUNT(id) as billCount FROM bills WHERE DATE(bill_date) = ${today}`);
-        
         const [inventoryStatsResult] = await pool.query(`SELECT SUM(quantity) as totalItems FROM products`);
-        
         const [settingsRows] = await pool.query("SELECT setting_value FROM settings WHERE setting_key = 'lowStockThreshold'");
         const lowStockThreshold = settingsRows.length > 0 ? Number(settingsRows[0].setting_value) : 10;
         const [lowStockResult] = await pool.query('SELECT COUNT(id) as lowStockCount FROM products WHERE quantity <= ?', [lowStockThreshold]);
-        
         const [expiringResult] = await pool.query(`
             SELECT COUNT(id) as expiringCount 
             FROM products 
             WHERE expiry IS NOT NULL 
             AND STR_TO_DATE(CONCAT(expiry, '-01'), '%Y-%m-%d') BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
         `);
-
         const [recentTransactions] = await pool.query('SELECT * FROM bills ORDER BY id DESC LIMIT 5');
-
         res.json({
             todaySales: salesTodayResult[0].totalSales || 0,
             todayBillsCount: salesTodayResult[0].billCount || 0,
@@ -171,13 +142,11 @@ app.get('/api/dashboard-stats', async (req, res) => {
             expiringCount: expiringResult[0].expiringCount || 0,
             recentTransactions: recentTransactions,
         });
-
     } catch (err) {
         console.error('GET /api/dashboard-stats error:', err);
         res.status(500).json({ error: 'Failed to fetch dashboard stats' });
     }
 });
-
 
 // ---------- PRODUCTS ----------
 app.get('/api/products', async (req, res) => {
@@ -206,18 +175,6 @@ app.get('/api/products/search', async (req, res) => {
     } catch (err) {
         console.error('GET /api/products/search error:', err);
         res.status(500).json({ error: 'Search failed' });
-    }
-});
-
-app.get('/api/products/:id', async (req, res) => {
-    try {
-        const id = Number(req.params.id);
-        const rows = await query('SELECT * FROM products WHERE id = ? LIMIT 1', [id]);
-        if (!rows || rows.length === 0) return res.status(404).json({ error: 'Product not found' });
-        res.json(rows[0]);
-    } catch (err) {
-        console.error('GET /api/products/:id', err);
-        res.status(500).json({ error: 'Failed to fetch product' });
     }
 });
 
@@ -278,7 +235,6 @@ app.get('/api/customers', async (req, res) => {
         const rows = await query('SELECT * FROM customers ORDER BY name ASC');
         res.json(rows);
     } catch (err) {
-        console.error('GET /api/customers error:', err);
         res.status(500).json({ error: 'Failed to fetch customers' });
     }
 });
@@ -286,10 +242,6 @@ app.get('/api/customers', async (req, res) => {
 app.get('/api/customers/search', async (req, res) => {
     try {
         const q = (req.query.query || '').trim();
-        if (!q) {
-            const rows = await query('SELECT * FROM customers ORDER BY name ASC LIMIT 50');
-            return res.json(rows);
-        }
         const like = `%${q}%`;
         const rows = await query(
             `SELECT * FROM customers WHERE name LIKE ? OR mobile LIKE ? ORDER BY name ASC LIMIT 50`,
@@ -297,30 +249,19 @@ app.get('/api/customers/search', async (req, res) => {
         );
         res.json(rows);
     } catch (err) {
-        console.error('GET /api/customers/search error:', err);
         res.status(500).json({ error: 'Search failed' });
     }
 });
 
 app.post('/api/customers', async (req, res) => {
-    const conn = await pool.getConnection();
     try {
         const { name, mobile, doctorName } = req.body;
-        const [existing] = await conn.query('SELECT id FROM customers WHERE mobile = ? LIMIT 1', [mobile]);
-        if (existing.length > 0) {
-            conn.release();
-            return res.json({ message: 'Customer already exists', id: existing[0].id });
-        }
-        
-        const [result] = await conn.query(
+        const [result] = await pool.query(
             `INSERT INTO customers (name, mobile, doctor_name) VALUES (?, ?, ?)`,
             [name, mobile, doctorName]
         );
-        conn.release();
         res.json({ message: 'Customer added', id: result.insertId });
     } catch (err) {
-        conn.release();
-        console.error('POST /api/customers', err);
         if (err.code === 'ER_DUP_ENTRY') {
             res.status(400).json({ error: 'Customer with same mobile number already exists' });
         } else {
@@ -329,38 +270,16 @@ app.post('/api/customers', async (req, res) => {
     }
 });
 
-app.get('/api/customers/:id', async (req, res) => {
-    try {
-        const id = Number(req.params.id);
-        const rows = await query('SELECT * FROM customers WHERE id = ? LIMIT 1', [id]);
-        if (!rows || rows.length === 0) return res.status(404).json({ error: 'Product not found' });
-        res.json(rows[0]);
-    } catch (err) {
-        console.error('GET /api/customers/:id', err);
-        res.status(500).json({ error: 'Failed to fetch customer' });
-    }
-});
-
 app.put('/api/customers/:id', async (req, res) => {
     try {
         const id = Number(req.params.id);
         const { name, mobile, doctor_name } = req.body;
-        
-        if (!name || !mobile) {
-            return res.status(400).json({ error: 'Name and mobile are required.' });
-        }
-
-        const result = await query(
+        await query(
             `UPDATE customers SET name = ?, mobile = ?, doctor_name = ? WHERE id = ?`,
             [name, mobile, doctor_name, id]
         );
-
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: 'Customer not found' });
-        }
         res.json({ message: 'Customer updated successfully' });
     } catch (err) {
-        console.error('PUT /api/customers/:id', err);
         if (err.code === 'ER_DUP_ENTRY') {
              res.status(400).json({ error: 'Another customer with this mobile number already exists.' });
         } else {
@@ -371,18 +290,12 @@ app.put('/api/customers/:id', async (req, res) => {
 
 app.delete('/api/customers/:id', async (req, res) => {
     try {
-        const id = Number(req.params.id);
-        const result = await query('DELETE FROM customers WHERE id = ?', [id]);
-        if (result.affectedRows === 0) {
-            return res.status(404).json({ error: 'Customer not found' });
-        }
+        await query('DELETE FROM customers WHERE id = ?', [Number(req.params.id)]);
         res.json({ message: 'Customer deleted' });
     } catch (err) {
-        console.error('DELETE /api/customers/:id', err);
         res.status(500).json({ error: 'Delete failed' });
     }
 });
-
 
 // ---------- SETTINGS ----------
 app.get('/api/settings', async (req, res) => {
@@ -393,7 +306,6 @@ app.get('/api/settings', async (req, res) => {
         if (obj.lowStockThreshold) obj.lowStockThreshold = Number(obj.lowStockThreshold);
         res.json(obj);
     } catch (err) {
-        console.error('GET /api/settings', err);
         res.status(500).json({ error: 'Failed to fetch settings' });
     }
 });
@@ -401,8 +313,7 @@ app.get('/api/settings', async (req, res) => {
 app.post('/api/settings', async (req, res) => {
     try {
         const newSettings = req.body.settings || req.body;
-        const keys = Object.keys(newSettings);
-        for (const key of keys) {
+        for (const key of Object.keys(newSettings)) {
             const value = String(newSettings[key]);
             await query(
                 `INSERT INTO settings (setting_key, setting_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE setting_value = ?`,
@@ -411,11 +322,9 @@ app.post('/api/settings', async (req, res) => {
         }
         res.json({ message: 'Settings saved' });
     } catch (err) {
-        console.error('POST /api/settings', err);
         res.status(500).json({ error: 'Failed to save settings' });
     }
 });
-
 
 // ---------- BILLS (SALES) ----------
 app.get('/api/bills', async (req, res) => {
@@ -423,7 +332,6 @@ app.get('/api/bills', async (req, res) => {
         const rows = await query('SELECT * FROM bills ORDER BY id DESC');
         res.json(rows);
     } catch (err) {
-        console.error('GET /api/bills', err);
         res.status(500).json({ error: 'Failed to list bills' });
     }
 });
@@ -431,33 +339,25 @@ app.get('/api/bills', async (req, res) => {
 app.get('/api/bills/:id', async (req, res) => {
     const conn = await pool.getConnection();
     try {
-        const billId = Number(req.params.id);
-        const [bRows] = await conn.query('SELECT * FROM bills WHERE id = ?', [billId]);
+        const [bRows] = await conn.query('SELECT * FROM bills WHERE id = ?', [Number(req.params.id)]);
         if (!bRows || bRows.length === 0) {
             conn.release();
             return res.status(404).json({ error: 'Bill not found' });
         }
-        const bill = bRows[0];
-        const [items] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ?', [billId]);
-        
+        const [items] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ?', [Number(req.params.id)]);
         conn.release();
-        res.json({ ...bill, items });
+        res.json({ ...bRows[0], items });
     } catch (err) {
         conn.release();
-        console.error('GET /api/bills/:id', err);
         res.status(500).json({ error: 'Failed to fetch bill' });
     }
 });
 
-// Create new bill
 app.post('/api/bills', async (req, res) => {
     const conn = await pool.getConnection();
     try {
-        const body = req.body;
-        const billNumber = body.billNumber || `BILL-${Date.now()}`;
-        
-        const { patientName, patientMobile, doctorName, items, billDate, overallDiscountPercent } = body;
-
+        const { patientName, patientMobile, doctorName, items, billDate, overallDiscountPercent } = req.body;
+        const billNumber = `BILL-${Date.now()}`;
         let customerId = null;
         if (patientMobile) {
             const [existing] = await conn.query('SELECT id FROM customers WHERE mobile = ? LIMIT 1', [patientMobile]);
@@ -468,59 +368,35 @@ app.post('/api/bills', async (req, res) => {
                 customerId = newCustomer.insertId;
             }
         }
-
         let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
         const overallDiscount = Number(overallDiscountPercent) || 0;
-
         for (const it of items) {
-            const currentRate = Number(it.rate) || 0;
-            const currentQty = Number(it.quantity) || 0;
-            const currentItemDiscount = Number(it.discount) || 0;
-            const currentCgst = Number(it.cgst) || 0;
-            const currentSgst = Number(it.sgst) || 0;
-
-            const itemSubtotal = currentRate * currentQty;
-            const itemDiscountAmount = itemSubtotal * (currentItemDiscount / 100);
+            const itemSubtotal = (Number(it.rate) || 0) * (Number(it.quantity) || 0);
+            const itemDiscountAmount = itemSubtotal * ((Number(it.discount) || 0) / 100);
             const taxableAfterItemDisc = itemSubtotal - itemDiscountAmount;
             const overallDiscountAmount = taxableAfterItemDisc * (overallDiscount / 100);
             const finalTaxable = taxableAfterItemDisc - overallDiscountAmount;
-            
             subtotal += itemSubtotal;
             totalDiscount += itemDiscountAmount + overallDiscountAmount;
-            totalCGST += finalTaxable * (currentCgst / 100);
-            totalSGST += finalTaxable * (currentSgst / 100);
+            totalCGST += finalTaxable * ((Number(it.cgst) || 0) / 100);
+            totalSGST += finalTaxable * ((Number(it.sgst) || 0) / 100);
         }
         const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
-
         await conn.beginTransaction();
-
-        let insertQuery;
-        let insertParams;
-
-        if (billDate) {
-            insertQuery = `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id, bill_date, overall_discount_percent)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-            insertParams = [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, billDate, overallDiscount];
-        } else {
-            insertQuery = `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id, overall_discount_percent)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-            insertParams = [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, overallDiscount];
-        }
-        
-        const [billInsert] = await conn.query(insertQuery, insertParams);
+        const [billInsert] = await conn.query(
+            `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id, bill_date, overall_discount_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, billDate || new Date(), overallDiscount]
+        );
         const billId = billInsert.insertId;
-
         for (const it of items) {
             await conn.query(
-                `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                  [billId, it.product_id, it.name, it.batch, it.mrp, it.rate, it.quantity, it.expiry, it.discount, it.cgst, it.sgst]
             );
             if (it.product_id) {
                 await conn.query(`UPDATE products SET quantity = GREATEST(0, quantity - ?) WHERE id = ?`, [it.quantity, it.product_id]);
             }
         }
-
         await conn.commit();
         conn.release();
         res.json({ message: 'Bill created', id: billId, bill_number: billNumber });
@@ -532,77 +408,52 @@ app.post('/api/bills', async (req, res) => {
     }
 });
 
-// Update an existing bill
 app.put('/api/bills/:id', async (req, res) => {
     const conn = await pool.getConnection();
     try {
         const billId = Number(req.params.id);
-        const body = req.body;
-
-        const [billRows] = await conn.query('SELECT * FROM bills WHERE id = ?', [billId]);
-        if (!billRows[0]) return res.status(404).json({ error: 'Bill not found' });
-        
         const [existingItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ?', [billId]);
-        
-        let { items, patient_name, patient_mobile, doctor_name, overall_discount_percent } = body;
+        const { items, patient_name, patient_mobile, doctor_name, overall_discount_percent } = req.body;
         const overallDiscount = Number(overall_discount_percent) || 0;
-
         let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
         for (const it of items) {
-            const currentRate = Number(it.rate) || 0;
-            const currentQty = Number(it.quantity) || 0;
-            const currentDiscount = Number(it.discount) || 0;
-            const currentCgst = Number(it.cgst) || 0;
-            const currentSgst = Number(it.sgst) || 0;
-
-            const itemSubtotal = currentRate * currentQty;
-            const itemDiscountAmount = itemSubtotal * (currentDiscount / 100);
+            const itemSubtotal = (Number(it.rate) || 0) * (Number(it.quantity) || 0);
+            const itemDiscountAmount = itemSubtotal * ((Number(it.discount) || 0) / 100);
             const taxableAfterItemDisc = itemSubtotal - itemDiscountAmount;
             const overallDiscountAmount = taxableAfterItemDisc * (overallDiscount / 100);
             const finalTaxable = taxableAfterItemDisc - overallDiscountAmount;
-            
             subtotal += itemSubtotal;
             totalDiscount += itemDiscountAmount + overallDiscountAmount;
-            totalCGST += finalTaxable * (currentCgst / 100);
-            totalSGST += finalTaxable * (currentSgst / 100);
+            totalCGST += finalTaxable * ((Number(it.cgst) || 0) / 100);
+            totalSGST += finalTaxable * ((Number(it.sgst) || 0) / 100);
         }
         const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
-
         await conn.beginTransaction();
-
         const existingMap = {};
         for (const it of existingItems) {
             if(it.product_id) existingMap[it.product_id] = (existingMap[it.product_id] || 0) + it.quantity;
         }
-
         const newMap = {};
         for (const it of items) {
              if(it.product_id) newMap[it.product_id] = (newMap[it.product_id] || 0) + it.quantity;
         }
-
-        const allKeys = new Set([...Object.keys(existingMap), ...Object.keys(newMap)]);
-        for (const k of allKeys) {
-            const pid = Number(k);
+        for (const k of new Set([...Object.keys(existingMap), ...Object.keys(newMap)])) {
             const delta = (existingMap[k] || 0) - (newMap[k] || 0);
             if (delta !== 0) {
-                 await conn.query('UPDATE products SET quantity = quantity + ? WHERE id = ?', [delta, pid]);
+                 await conn.query('UPDATE products SET quantity = quantity + ? WHERE id = ?', [delta, Number(k)]);
             }
         }
-
         await conn.query('DELETE FROM bill_items WHERE bill_id = ?', [billId]);
         for (const it of items) {
             await conn.query(
-                `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
                  [billId, it.product_id, it.product_name, it.batch, it.mrp, it.rate, it.quantity, it.expiry, it.discount, it.cgst, it.sgst]
             );
         }
-
         await conn.query(
             `UPDATE bills SET patient_name = ?, patient_mobile = ?, doctor_name = ?, subtotal = ?, total_discount = ?, total_cgst = ?, total_sgst = ?, grand_total = ?, overall_discount_percent = ? WHERE id = ?`,
             [patient_name, patient_mobile, doctor_name, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, overallDiscount, billId]
         );
-
         await conn.commit();
         conn.release();
         res.json({ message: 'Bill updated' });
@@ -617,7 +468,7 @@ app.put('/api/bills/:id', async (req, res) => {
 // ---------- PURCHASES ----------
 app.get('/api/purchases', async (req, res) => {
     try {
-        const rows = await query('SELECT * FROM purchase_bills ORDER BY bill_date DESC, id DESC');
+        const rows = await query('SELECT id, bill_number, supplier_name, bill_date, tax_type, grand_total FROM purchase_bills ORDER BY bill_date DESC, id DESC');
         res.json(rows);
     } catch (err) {
         console.error('GET /api/purchases error:', err);
@@ -628,17 +479,14 @@ app.get('/api/purchases', async (req, res) => {
 app.get('/api/purchases/:id', async (req, res) => {
     const conn = await pool.getConnection();
     try {
-        const purchaseId = Number(req.params.id);
-        const [pRows] = await conn.query('SELECT * FROM purchase_bills WHERE id = ?', [purchaseId]);
+        const [pRows] = await conn.query('SELECT * FROM purchase_bills WHERE id = ?', [Number(req.params.id)]);
         if (!pRows || pRows.length === 0) {
             conn.release();
             return res.status(404).json({ error: 'Purchase Bill not found' });
         }
-        const purchaseBill = pRows[0];
-        const [items] = await conn.query('SELECT * FROM purchase_bill_items WHERE purchase_bill_id = ?', [purchaseId]);
-        
+        const [items] = await conn.query('SELECT * FROM purchase_bill_items WHERE purchase_bill_id = ?', [Number(req.params.id)]);
         conn.release();
-        res.json({ ...purchaseBill, items });
+        res.json({ ...pRows[0], items });
     } catch (err) {
         conn.release();
         console.error('GET /api/purchases/:id', err);
@@ -652,46 +500,53 @@ app.post('/api/purchases', async (req, res) => {
         const { supplierName, billNumber, billDate, taxType, items, overallDiscountPercent } = req.body;
 
         if (!supplierName || !billNumber || !billDate || !taxType || !items || items.length === 0) {
+            conn.release();
             return res.status(400).json({ error: 'Missing required fields for purchase bill.' });
         }
         
         const overallDiscount = Number(overallDiscountPercent) || 0;
 
-        const totalAmount = items.reduce((sum, item) => {
-            const purchaseRate = Number(item.purchaseRate) || 0;
-            const quantity = Number(item.quantity) || 0;
-            const itemDiscount = Number(item.discount) || 0;
-            const igst = Number(item.igst) || 0;
-            const cgst = Number(item.cgst) || 0;
-            const sgst = Number(item.sgst) || 0;
+        let totalPreTax = 0;
+        let totalGstAmount = 0;
 
-            const base = purchaseRate * quantity;
-            const itemDiscounted = base * (1 - (itemDiscount / 100));
-            
-            const overallDiscountAmount = itemDiscounted * (overallDiscount / 100);
-            const finalDiscounted = itemDiscounted - overallDiscountAmount;
+        items.forEach(item => {
+            const base = (Number(item.purchaseRate) || 0) * (Number(item.quantity) || 0);
+            const itemDiscounted = base * (1 - ((Number(item.discount) || 0) / 100));
+            totalPreTax += itemDiscounted;
+        });
 
-            const totalGstPercent = igst > 0 ? igst : (cgst + sgst);
-            const gstAmount = finalDiscounted * (totalGstPercent / 100);
-            return sum + finalDiscounted + gstAmount;
-        }, 0);
-        const roundedTotal = Math.round(totalAmount);
+        const overallDiscountAmount = totalPreTax * (overallDiscount / 100);
+        const taxableAmount = totalPreTax - overallDiscountAmount;
+
+        items.forEach(item => {
+            const base = (Number(item.purchaseRate) || 0) * (Number(item.quantity) || 0);
+            const itemDiscounted = base * (1 - ((Number(item.discount) || 0) / 100));
+            const finalDiscounted = itemDiscounted * (1 - (overallDiscount / 100));
+            const totalGstPercent = (Number(item.igst) || 0) > 0 ? (Number(item.igst) || 0) : ((Number(item.cgst) || 0) + (Number(item.sgst) || 0));
+            totalGstAmount += finalDiscounted * (totalGstPercent / 100);
+        });
+        
+        const totalBeforeRounding = taxableAmount + totalGstAmount;
+        const grandTotal = Math.round(totalBeforeRounding);
+        const rounding = grandTotal - totalBeforeRounding;
 
         await conn.beginTransaction();
 
         const [purchaseInsert] = await conn.query(
-            `INSERT INTO purchase_bills (supplier_name, bill_number, bill_date, total_amount, tax_type, overall_discount_percent) VALUES (?, ?, ?, ?, ?, ?)`,
-            [supplierName, billNumber, billDate, roundedTotal, taxType, overallDiscount]
+            `INSERT INTO purchase_bills (supplier_name, bill_number, bill_date, tax_type, total_pre_tax, overall_discount_percent, overall_discount_amount, taxable_amount, total_gst_amount, rounding, grand_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [supplierName, billNumber, billDate, taxType, totalPreTax, overallDiscount, overallDiscountAmount, taxableAmount, totalGstAmount, rounding, grandTotal]
         );
         const purchaseBillId = purchaseInsert.insertId;
 
         for (const item of items) {
-            const { productName, hsn, batch, packaging, quantity, mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, amount } = item;
+            const { productName, hsn, batch, packaging, quantity, freeQuantity, mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, amount } = item;
             
             await conn.query(
-                `INSERT INTO purchase_bill_items (purchase_bill_id, product_name, hsn, batch, packaging, quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, discount, expiry, cgst, sgst, igst, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [purchaseBillId, productName, hsn, batch, packaging, quantity, mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, amount]
+                `INSERT INTO purchase_bill_items (purchase_bill_id, product_name, hsn, batch, packaging, quantity, free_quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, discount, expiry, cgst, sgst, igst, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                [purchaseBillId, productName, hsn, batch, packaging, quantity, freeQuantity || 0, mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, amount]
             );
+
+            const totalQuantity = (Number(quantity) || 0) + (Number(freeQuantity) || 0);
 
             await conn.query(
                 `INSERT INTO products (name, hsn, batch, packaging, quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, expiry, cgst, sgst) 
@@ -706,7 +561,7 @@ app.post('/api/purchases', async (req, res) => {
                     expiry = VALUES(expiry), 
                     cgst = VALUES(cgst), 
                     sgst = VALUES(sgst)`,
-                [productName, hsn, batch, packaging, quantity, mrp, purchaseRate, saleRate, saleRateIncl, expiry, item.saleCgst, item.saleSgst]
+                [productName, hsn, batch, packaging, totalQuantity, mrp, purchaseRate, saleRate, saleRateIncl, expiry, item.saleCgst, item.saleSgst]
             );
         }
 
@@ -721,6 +576,7 @@ app.post('/api/purchases', async (req, res) => {
         res.status(500).json({ error: 'Failed to create purchase bill and update inventory.' });
     }
 });
+
 
 // ---------- REPORTS ----------
 app.get('/api/reports', async (req, res) => {
@@ -747,7 +603,7 @@ app.get('/api/reports', async (req, res) => {
                 reportData = await query(queryStr);
                 break;
             case 'purchases':
-                queryStr = `SELECT bill_number, supplier_name, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, tax_type, total_amount FROM purchase_bills WHERE bill_date BETWEEN ? AND ? ORDER BY bill_date DESC`;
+                queryStr = `SELECT bill_number, supplier_name, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, tax_type, grand_total FROM purchase_bills WHERE bill_date BETWEEN ? AND ? ORDER BY bill_date DESC`;
                 reportData = await query(queryStr, [fromDate, toDate]);
                 break;
             case 'expiry':
@@ -797,4 +653,3 @@ app.listen(PORT, () => {
     console.log(`API server running on port ${PORT}`);
     console.log(`Open http://localhost:${PORT} in your browser`);
 });
-
