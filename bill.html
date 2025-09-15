@@ -698,6 +698,10 @@
                             <span>SGST:</span>
                             <span id="totalSGST">₹0.00</span>
                         </div>
+                        <div class="total-row" style="align-items: center;">
+                            <label for="overallDiscountPercent" style="font-weight: bold; font-size: 1em;">Overall Discount (%):</label>
+                            <input type="number" id="overallDiscountPercent" value="0" min="0" oninput="calculateTotals()" style="width: 80px; padding: 5px; text-align: right;">
+                        </div>
                         <div class="total-row">
                             <span>Grand Total:</span>
                             <span id="grandTotal">₹0.00</span>
@@ -1064,6 +1068,10 @@
                     <div class="total-row">
                         <span>Rounding:</span>
                         <span id="purchaseRoundingAmount">₹0.00</span>
+                    </div>
+                    <div class="total-row" style="align-items: center;">
+                        <label for="purchaseOverallDiscountPercent" style="font-weight: bold;">Overall Discount (%):</label>
+                        <input type="number" id="purchaseOverallDiscountPercent" value="0" min="0" oninput="calculatePurchaseTotal()" style="width: 80px; padding: 5px; text-align: right;">
                     </div>
                     <div class="total-row">
                         <strong><span>Grand Total:</span></strong>
@@ -1659,15 +1667,20 @@
 
         function calculateTotals() {
             let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
+            const overallDiscountPercent = Number(document.getElementById('overallDiscountPercent').value) || 0;
 
             billItems.forEach(item => {
                 const itemSubtotal = item.rate * item.quantity;
-                const itemDiscount = itemSubtotal * (item.discount / 100);
-                const taxable = itemSubtotal - itemDiscount;
+                const itemDiscountAmount = itemSubtotal * (item.discount / 100);
+                const taxableAfterItemDisc = itemSubtotal - itemDiscountAmount;
+                
+                const overallDiscountAmount = taxableAfterItemDisc * (overallDiscountPercent / 100);
+                const finalTaxable = taxableAfterItemDisc - overallDiscountAmount;
+
                 subtotal += itemSubtotal;
-                totalDiscount += itemDiscount;
-                totalCGST += taxable * (Number(item.cgst) / 100);
-                totalSGST += taxable * (Number(item.sgst) / 100);
+                totalDiscount += itemDiscountAmount + overallDiscountAmount;
+                totalCGST += finalTaxable * (Number(item.cgst) / 100);
+                totalSGST += finalTaxable * (Number(item.sgst) / 100);
             });
 
             const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
@@ -1687,7 +1700,8 @@
                 const gtRow = document.getElementById('grandTotal').parentNode;
                 gtRow.parentNode.insertBefore(roundingRow, gtRow);
             }
-            roundingRow.innerHTML = `<span>Rounding:</span><span>₹${rounding.toFixed(2)}</span>`;
+             roundingRow.innerHTML = `<span>Rounding:</span><span>₹${rounding.toFixed(2)}</span>`;
+
             document.getElementById('grandTotal').textContent = `₹${rounded.toFixed(2)}`;
         }
 
@@ -1704,6 +1718,7 @@
                 doctorName: document.getElementById('doctorName').value,
                 items: billItems.map(item => ({ ...item, product_id: item.id })),
                 billDate: document.getElementById('saleBillDate').value,
+                overallDiscountPercent: document.getElementById('overallDiscountPercent').value,
             };
 
             try {
@@ -1784,6 +1799,7 @@
             document.getElementById('patientName').value = '';
             document.getElementById('patientMobile').value = '';
             document.getElementById('doctorName').value = '';
+            document.getElementById('overallDiscountPercent').value = 0;
             clearProductInputs();
             updateBillTable();
             calculateTotals();
@@ -1944,7 +1960,8 @@
             const qtyInputs = document.querySelectorAll('.edit-qty');
             const rateInputs = document.querySelectorAll('.edit-rate');
             const discountInputs = document.querySelectorAll('.edit-discount');
-            
+            const overallDiscountPercent = Number(document.getElementById('editOverallDiscount').value) || 0;
+
             let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
 
             window.currentEditingBill.items.forEach((item, i) => {
@@ -1954,12 +1971,15 @@
                 
                 const itemSubtotal = rate * qty;
                 const itemDiscountAmount = itemSubtotal * (discount / 100);
-                const taxable = itemSubtotal - itemDiscountAmount;
+                const taxableAfterItemDisc = itemSubtotal - itemDiscountAmount;
+
+                const overallDiscountAmount = taxableAfterItemDisc * (overallDiscountPercent / 100);
+                const finalTaxable = taxableAfterItemDisc - overallDiscountAmount;
                 
                 subtotal += itemSubtotal;
-                totalDiscount += itemDiscountAmount;
-                totalCGST += taxable * (Number(item.cgst) / 100);
-                totalSGST += taxable * (Number(item.sgst) / 100);
+                totalDiscount += itemDiscountAmount + overallDiscountAmount;
+                totalCGST += finalTaxable * (Number(item.cgst) / 100);
+                totalSGST += finalTaxable * (Number(item.sgst) / 100);
             });
 
             const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
@@ -1982,6 +2002,7 @@
                         <div class="form-group"> <label>Patient Name</label> <input type="text" id="editPatientName" value="${bill.patient_name}"> </div>
                         <div class="form-group"> <label>Patient Mobile</label> <input type="text" id="editPatientMobile" value="${bill.patient_mobile}"> </div>
                         <div class="form-group"> <label>Doctor Name</label> <input type="text" id="editDoctorName" value="${bill.doctor_name || ''}"> </div>
+                        <div class="form-group"> <label>Overall Discount %</label> <input type="number" id="editOverallDiscount" value="${bill.overall_discount_percent || 0}" oninput="recalculateEditedBillTotals()"> </div>
                     </div>
                     <p><strong>Bill No:</strong> ${bill.bill_number}</p>
                     <table style="width:100%; margin-top:10px;">
@@ -2024,6 +2045,7 @@
                 patient_name: document.getElementById('editPatientName').value,
                 patient_mobile: document.getElementById('editPatientMobile').value,
                 doctor_name: document.getElementById('editDoctorName').value,
+                overall_discount_percent: document.getElementById('editOverallDiscount').value,
                 items: updatedItems
             };
 
@@ -2209,7 +2231,22 @@
         }
 
         function calculatePurchaseTotal() {
-            const total = purchaseBillItems.reduce((sum, item) => sum + item.amount, 0);
+            const overallDiscountPercent = Number(document.getElementById('purchaseOverallDiscountPercent').value) || 0;
+            
+            let total = 0;
+            purchaseBillItems.forEach(item => {
+                const base = item.purchaseRate * item.quantity;
+                const itemDiscounted = base * (1 - (item.discount / 100));
+
+                const overallDiscountAmount = itemDiscounted * (overallDiscountPercent / 100);
+                const finalDiscounted = itemDiscounted - overallDiscountAmount;
+
+                const totalGstPercent = item.igst > 0 ? item.igst : (item.cgst + item.sgst);
+                const gstAmount = finalDiscounted * (totalGstPercent / 100);
+                
+                total += finalDiscounted + gstAmount;
+            });
+
             const roundedTotal = Math.round(total);
             const rounding = roundedTotal - total;
 
@@ -2224,8 +2261,8 @@
                 billNumber: document.getElementById('purchaseBillNumber').value,
                 billDate: document.getElementById('purchaseBillDate').value,
                 taxType: document.querySelector('input[name="purchaseTaxType"]:checked').value,
-                totalAmount: purchaseBillItems.reduce((sum, item) => sum + item.amount, 0),
-                items: purchaseBillItems
+                items: purchaseBillItems,
+                overallDiscountPercent: document.getElementById('purchaseOverallDiscountPercent').value,
             };
 
             if (!purchaseData.supplierName || !purchaseData.billNumber || !purchaseData.billDate || purchaseData.items.length === 0) {
@@ -2457,3 +2494,4 @@
     </script>
 </body>
 </html>
+

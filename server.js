@@ -456,7 +456,7 @@ app.post('/api/bills', async (req, res) => {
         const body = req.body;
         const billNumber = body.billNumber || `BILL-${Date.now()}`;
         
-        const { patientName, patientMobile, doctorName, items, billDate } = body;
+        const { patientName, patientMobile, doctorName, items, billDate, overallDiscountPercent } = body;
 
         let customerId = null;
         if (patientMobile) {
@@ -470,12 +470,25 @@ app.post('/api/bills', async (req, res) => {
         }
 
         let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
+        const overallDiscount = Number(overallDiscountPercent) || 0;
+
         for (const it of items) {
-            const taxable = (it.rate * it.quantity) * (1 - (it.discount / 100));
-            subtotal += it.rate * it.quantity;
-            totalDiscount += (it.rate * it.quantity) * (it.discount / 100);
-            totalCGST += taxable * (it.cgst / 100);
-            totalSGST += taxable * (it.sgst / 100);
+            const currentRate = Number(it.rate) || 0;
+            const currentQty = Number(it.quantity) || 0;
+            const currentItemDiscount = Number(it.discount) || 0;
+            const currentCgst = Number(it.cgst) || 0;
+            const currentSgst = Number(it.sgst) || 0;
+
+            const itemSubtotal = currentRate * currentQty;
+            const itemDiscountAmount = itemSubtotal * (currentItemDiscount / 100);
+            const taxableAfterItemDisc = itemSubtotal - itemDiscountAmount;
+            const overallDiscountAmount = taxableAfterItemDisc * (overallDiscount / 100);
+            const finalTaxable = taxableAfterItemDisc - overallDiscountAmount;
+            
+            subtotal += itemSubtotal;
+            totalDiscount += itemDiscountAmount + overallDiscountAmount;
+            totalCGST += finalTaxable * (currentCgst / 100);
+            totalSGST += finalTaxable * (currentSgst / 100);
         }
         const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
 
@@ -485,15 +498,13 @@ app.post('/api/bills', async (req, res) => {
         let insertParams;
 
         if (billDate) {
-            // If a date is provided, include it in the insert.
-            insertQuery = `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id, bill_date)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-            insertParams = [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, billDate];
+            insertQuery = `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id, bill_date, overall_discount_percent)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            insertParams = [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, billDate, overallDiscount];
         } else {
-            // If no date is provided, omit the column to use the DB default.
-            insertQuery = `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id)
-                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
-            insertParams = [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId];
+            insertQuery = `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id, overall_discount_percent)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+            insertParams = [billNumber, patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, overallDiscount];
         }
         
         const [billInsert] = await conn.query(insertQuery, insertParams);
@@ -533,24 +544,27 @@ app.put('/api/bills/:id', async (req, res) => {
         
         const [existingItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ?', [billId]);
         
-        let { items, patient_name, patient_mobile, doctor_name } = body;
-        
+        let { items, patient_name, patient_mobile, doctor_name, overall_discount_percent } = body;
+        const overallDiscount = Number(overall_discount_percent) || 0;
+
         let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
         for (const it of items) {
-            const currentRate = Number(it.rate);
-            const currentQty = Number(it.quantity);
-            const currentDiscount = Number(it.discount);
-            const currentCgst = Number(it.cgst);
-            const currentSgst = Number(it.sgst);
+            const currentRate = Number(it.rate) || 0;
+            const currentQty = Number(it.quantity) || 0;
+            const currentDiscount = Number(it.discount) || 0;
+            const currentCgst = Number(it.cgst) || 0;
+            const currentSgst = Number(it.sgst) || 0;
 
             const itemSubtotal = currentRate * currentQty;
             const itemDiscountAmount = itemSubtotal * (currentDiscount / 100);
-            const taxable = itemSubtotal - itemDiscountAmount;
+            const taxableAfterItemDisc = itemSubtotal - itemDiscountAmount;
+            const overallDiscountAmount = taxableAfterItemDisc * (overallDiscount / 100);
+            const finalTaxable = taxableAfterItemDisc - overallDiscountAmount;
             
             subtotal += itemSubtotal;
-            totalDiscount += itemDiscountAmount;
-            totalCGST += taxable * (currentCgst / 100);
-            totalSGST += taxable * (currentSgst / 100);
+            totalDiscount += itemDiscountAmount + overallDiscountAmount;
+            totalCGST += finalTaxable * (currentCgst / 100);
+            totalSGST += finalTaxable * (currentSgst / 100);
         }
         const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
 
@@ -585,8 +599,8 @@ app.put('/api/bills/:id', async (req, res) => {
         }
 
         await conn.query(
-            `UPDATE bills SET patient_name = ?, patient_mobile = ?, doctor_name = ?, subtotal = ?, total_discount = ?, total_cgst = ?, total_sgst = ?, grand_total = ? WHERE id = ?`,
-            [patient_name, patient_mobile, doctor_name, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, billId]
+            `UPDATE bills SET patient_name = ?, patient_mobile = ?, doctor_name = ?, subtotal = ?, total_discount = ?, total_cgst = ?, total_sgst = ?, grand_total = ?, overall_discount_percent = ? WHERE id = ?`,
+            [patient_name, patient_mobile, doctor_name, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, overallDiscount, billId]
         );
 
         await conn.commit();
@@ -635,26 +649,39 @@ app.get('/api/purchases/:id', async (req, res) => {
 app.post('/api/purchases', async (req, res) => {
     const conn = await pool.getConnection();
     try {
-        const { supplierName, billNumber, billDate, taxType, items } = req.body;
+        const { supplierName, billNumber, billDate, taxType, items, overallDiscountPercent } = req.body;
 
         if (!supplierName || !billNumber || !billDate || !taxType || !items || items.length === 0) {
             return res.status(400).json({ error: 'Missing required fields for purchase bill.' });
         }
         
+        const overallDiscount = Number(overallDiscountPercent) || 0;
+
         const totalAmount = items.reduce((sum, item) => {
-            const base = item.purchaseRate * item.quantity;
-            const discounted = base * (1 - (item.discount / 100));
-            const totalGstPercent = item.igst > 0 ? item.igst : (item.cgst + item.sgst);
-            const gstAmount = discounted * (totalGstPercent / 100);
-            return sum + discounted + gstAmount;
+            const purchaseRate = Number(item.purchaseRate) || 0;
+            const quantity = Number(item.quantity) || 0;
+            const itemDiscount = Number(item.discount) || 0;
+            const igst = Number(item.igst) || 0;
+            const cgst = Number(item.cgst) || 0;
+            const sgst = Number(item.sgst) || 0;
+
+            const base = purchaseRate * quantity;
+            const itemDiscounted = base * (1 - (itemDiscount / 100));
+            
+            const overallDiscountAmount = itemDiscounted * (overallDiscount / 100);
+            const finalDiscounted = itemDiscounted - overallDiscountAmount;
+
+            const totalGstPercent = igst > 0 ? igst : (cgst + sgst);
+            const gstAmount = finalDiscounted * (totalGstPercent / 100);
+            return sum + finalDiscounted + gstAmount;
         }, 0);
         const roundedTotal = Math.round(totalAmount);
 
         await conn.beginTransaction();
 
         const [purchaseInsert] = await conn.query(
-            `INSERT INTO purchase_bills (supplier_name, bill_number, bill_date, total_amount, tax_type) VALUES (?, ?, ?, ?, ?)`,
-            [supplierName, billNumber, billDate, roundedTotal, taxType]
+            `INSERT INTO purchase_bills (supplier_name, bill_number, bill_date, total_amount, tax_type, overall_discount_percent) VALUES (?, ?, ?, ?, ?, ?)`,
+            [supplierName, billNumber, billDate, roundedTotal, taxType, overallDiscount]
         );
         const purchaseBillId = purchaseInsert.insertId;
 
@@ -770,3 +797,4 @@ app.listen(PORT, () => {
     console.log(`API server running on port ${PORT}`);
     console.log(`Open http://localhost:${PORT} in your browser`);
 });
+

@@ -41,9 +41,6 @@ UNIQUE KEY unique_customer_mobile (mobile)
 );
 
 -- Create the bills table (Sales bills do not have IGST)
--- FIX: Changed bill_date from DATE to TIMESTAMP with a default value.
--- This makes the database the single source of truth for bill creation time,
--- and it will be stored correctly in the session's timezone (IST).
 CREATE TABLE bills (
 id INT AUTO_INCREMENT PRIMARY KEY,
 bill_number VARCHAR(255) NOT NULL,
@@ -52,6 +49,7 @@ patient_name VARCHAR(255) NOT NULL,
 patient_mobile VARCHAR(15) NOT NULL,
 doctor_name VARCHAR(255),
 subtotal DECIMAL(10, 2) NOT NULL,
+overall_discount_percent DECIMAL(5, 2) NOT NULL DEFAULT 0,
 total_discount DECIMAL(10, 2) NOT NULL,
 total_cgst DECIMAL(10, 2) NOT NULL DEFAULT 0,
 total_sgst DECIMAL(10, 2) NOT NULL DEFAULT 0,
@@ -85,6 +83,7 @@ bill_number VARCHAR(255) NOT NULL,
 bill_date DATE NOT NULL,
 total_amount DECIMAL(10, 2) NOT NULL,
 tax_type VARCHAR(10) NOT NULL, -- 'IGST' or 'CSGST'
+overall_discount_percent DECIMAL(5, 2) NOT NULL DEFAULT 0,
 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -124,3 +123,4 @@ INSERT INTO settings (setting_key, setting_value) VALUES
 ('email', 'genericartcr@gmail.com'),
 ('address', 'Near MBB Club, Shivnagar, 799001'),
 ('lowStockThreshold', '10');
+
