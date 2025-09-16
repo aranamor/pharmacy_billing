@@ -197,7 +197,7 @@ app.post('/api/products', async (req, res) => {
         const { name, hsn, batch, quantity, packaging, mrp, saleRate, saleRateInclusive, expiry, cgst, sgst, purchase_rate } = req.body;
         const result = await query(
             `INSERT INTO products (name, hsn, batch, quantity, packaging, mrp, purchase_rate, sale_rate, sale_rate_inclusive, expiry, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [name, hsn, batch, Number(quantity || 0), packaging, Number(mrp || 0), Number(purchase_rate || 0), Number(saleRate || 0), Number(saleRateInclusive || 0), expiry, Number(cgst || 0), Number(sgst || 0)]
+            [name, hsn, batch, parseFloat(quantity || 0), packaging, Number(mrp || 0), Number(purchase_rate || 0), Number(saleRate || 0), Number(saleRateInclusive || 0), expiry, Number(cgst || 0), Number(sgst || 0)]
         );
         res.json({ message: 'Product added', id: result.insertId });
     } catch (err) {
@@ -426,10 +426,10 @@ app.post('/api/bills', async (req, res) => {
         for (const it of items) {
             await conn.query(
                 `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                 [billId, it.product_id, it.name, it.batch, it.mrp, it.rate, it.quantity, it.expiry, it.discount, it.cgst, it.sgst]
+                 [billId, it.product_id, it.name, it.batch, it.mrp, it.rate, parseFloat(it.quantity), it.expiry, it.discount, it.cgst, it.sgst]
             );
             if (it.product_id) {
-                await conn.query(`UPDATE products SET quantity = GREATEST(0, quantity - ?) WHERE id = ?`, [it.quantity, it.product_id]);
+                await conn.query(`UPDATE products SET quantity = GREATEST(0, quantity - ?) WHERE id = ?`, [parseFloat(it.quantity), it.product_id]);
             }
         }
         await conn.commit();
@@ -470,7 +470,7 @@ app.put('/api/bills/:id', async (req, res) => {
         }
         const newMap = {};
         for (const it of items) {
-             if(it.product_id) newMap[it.product_id] = (newMap[it.product_id] || 0) + it.quantity;
+             if(it.product_id) newMap[it.product_id] = (newMap[it.product_id] || 0) + parseFloat(it.quantity);
         }
         for (const k of new Set([...Object.keys(existingMap), ...Object.keys(newMap)])) {
             const delta = (existingMap[k] || 0) - (newMap[k] || 0);
@@ -482,7 +482,7 @@ app.put('/api/bills/:id', async (req, res) => {
         for (const it of items) {
             await conn.query(
                 `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                 [billId, it.product_id, it.product_name, it.batch, it.mrp, it.rate, it.quantity, it.expiry, it.discount, it.cgst, it.sgst]
+                 [billId, it.product_id, it.product_name, it.batch, it.mrp, it.rate, parseFloat(it.quantity), it.expiry, it.discount, it.cgst, it.sgst]
             );
         }
         await conn.query(
@@ -545,7 +545,7 @@ app.post('/api/purchases', async (req, res) => {
         let totalGstAmount = 0;
 
         items.forEach(item => {
-            const base = (Number(item.purchaseRate) || 0) * (Number(item.quantity) || 0);
+            const base = (Number(item.purchaseRate) || 0) * (parseFloat(item.quantity) || 0);
             const itemDiscounted = base * (1 - ((Number(item.discount) || 0) / 100));
             totalPreTax += itemDiscounted;
         });
@@ -554,7 +554,7 @@ app.post('/api/purchases', async (req, res) => {
         const taxableAmount = totalPreTax - overallDiscountAmount;
 
         items.forEach(item => {
-            const base = (Number(item.purchaseRate) || 0) * (Number(item.quantity) || 0);
+            const base = (Number(item.purchaseRate) || 0) * (parseFloat(item.quantity) || 0);
             const itemDiscounted = base * (1 - ((Number(item.discount) || 0) / 100));
             const finalDiscounted = itemDiscounted * (1 - (overallDiscount / 100));
             const totalGstPercent = (Number(item.igst) || 0) > 0 ? (Number(item.igst) || 0) : ((Number(item.cgst) || 0) + (Number(item.sgst) || 0));
@@ -580,20 +580,20 @@ app.post('/api/purchases', async (req, res) => {
                 cgst, sgst, igst, saleCgst, saleSgst
             } = item;
             
-            const baseAmount = (Number(purchaseRate) || 0) * (Number(quantity) || 0);
+            const baseAmount = (Number(purchaseRate) || 0) * (parseFloat(quantity) || 0);
             const discountAmount = baseAmount * ((Number(discount) || 0) / 100);
             const taxableAmountForItem = baseAmount - discountAmount;
             const totalGstPercent = (Number(igst) || 0) > 0 ? (Number(igst) || 0) : ((Number(cgst) || 0) + (Number(sgst) || 0));
             const gstAmountForItem = taxableAmountForItem * (totalGstPercent / 100);
             const itemTotalAmount = taxableAmountForItem + gstAmountForItem;
-
+            
             await conn.query(
                 `INSERT INTO purchase_bill_items (purchase_bill_id, product_name, hsn, batch, packaging, quantity, free_quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, discount, expiry, cgst, sgst, igst, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [purchaseBillId, productName, hsn, batch, packaging, quantity, freeQuantity || 0, mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, itemTotalAmount]
+                [purchaseBillId, productName, hsn, batch, packaging, parseFloat(quantity), parseFloat(freeQuantity || 0), mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, itemTotalAmount]
             );
-
-            const totalQuantity = (Number(quantity) || 0) + (Number(freeQuantity) || 0);
             
+            const totalQuantity = (parseFloat(quantity) || 0) + (parseFloat(freeQuantity) || 0);
+
             await conn.query(
                 `INSERT INTO products (name, hsn, batch, packaging, quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, expiry, cgst, sgst) 
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

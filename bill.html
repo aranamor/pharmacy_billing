@@ -658,11 +658,11 @@
                     </div>
                     <div class="form-group">
                         <label>Quantity *</label>
-                        <input type="number" id="billQty" min="1" placeholder="Enter quantity">
+                        <input type="number" id="billQty" min="0.01" step="0.01" placeholder="Enter quantity">
                     </div>
                     <div class="form-group">
                         <label>Discount (%)</label>
-                        <input type="number" id="billDiscount" min="0" max="100" value="0">
+                        <input type="number" id="billDiscount" min="0" max="100" value="0" step="0.01">
                     </div>
                 </div>
 
@@ -870,7 +870,7 @@
                     </div>
                     <div class="form-group">
                         <label>Low Stock Alert (Qty)</label>
-                        <input type="number" id="lowStockThreshold" value="10">
+                        <input type="number" id="lowStockThreshold" value="10" step="0.01">
                     </div>
                 </div>
 
@@ -926,7 +926,7 @@
                 </div>
                 <div class="form-group">
                     <label>Quantity *</label>
-                    <input type="number" id="productQuantity" min="0" placeholder="Initial quantity">
+                    <input type="number" id="productQuantity" min="0" placeholder="Initial quantity" step="0.01">
                 </div>
                  <div class="form-group">
                     <label>Purchase Rate *</label>
@@ -1015,11 +1015,11 @@
                 </div>
                 <div class="form-group">
                     <label>Quantity *</label>
-                    <input type="number" id="purchaseQty" min="1">
+                    <input type="number" id="purchaseQty" min="0.01" step="0.01">
                 </div>
                  <div class="form-group">
                     <label>Free Qty</label>
-                    <input type="number" id="purchaseFreeQty" min="0" value="0">
+                    <input type="number" id="purchaseFreeQty" min="0" value="0" step="0.01">
                 </div>
                 <div class="form-group">
                     <label>Expiry *</label>
@@ -1197,7 +1197,8 @@
         let purchaseBillItems = [];
         let transactions = [];
         let settings = {};
-        const packagingTypes = [ "STRIP", "BOTTLE", "PACK", "JAR", "TABLET", "CAPSULES", "BOX", "TUBE", "PIECE", "VIAL", "INJ", "SACHET", "SPRAY BOTTLE", "CAN", "UNIT", "AMPUL", "DROP", "PACKET", "POUCH", "INSURANCE", "RESPULE", "AMPOULE", "GLOVES", "INSULIN", "VIAL & SMALL BOTTLE", "SYRINGE", "TIN", "CONTAINER", "SUPPOSITRIES", "ML", "INJECTION" ];
+        // FIX: Add a blank option to the list
+        const packagingTypes = ["", "STRIP", "BOTTLE", "PACK", "JAR", "TABLET", "CAPSULES", "BOX", "TUBE", "PIECE", "VIAL", "INJ", "SACHET", "SPRAY BOTTLE", "CAN", "UNIT", "AMPUL", "DROP", "PACKET", "POUCH", "INSURANCE", "RESPULE", "AMPOULE", "GLOVES", "INSULIN", "VIAL & SMALL BOTTLE", "SYRINGE", "TIN", "CONTAINER", "SUPPOSITRIES", "ML", "INJECTION" ];
 
         // Base URL for the API
         const API_BASE_URL = '/api'; // Changed to relative path
@@ -1257,12 +1258,26 @@
             const productPackagingSelect = document.getElementById('productPackaging');
             const purchasePackagingSelect = document.getElementById('purchasePackaging');
             
+            // FIX: Clear existing options
+            productPackagingSelect.innerHTML = '';
+            purchasePackagingSelect.innerHTML = '';
+
+            // FIX: Add default empty option for purchases
+            const purchaseDefaultOption = new Option("", "");
+            purchaseDefaultOption.textContent = "Select Packaging";
+            purchasePackagingSelect.add(purchaseDefaultOption);
+            
             packagingTypes.forEach(type => {
                 const option1 = new Option(type, type);
                 const option2 = new Option(type, type);
                 productPackagingSelect.add(option1);
-                purchasePackagingSelect.add(option2);
+                // FIX: Only add non-blank options to the purchase dropdown
+                if (type !== "") {
+                    purchasePackagingSelect.add(option2);
+                }
             });
+            // FIX: Set the initial value to the blank option
+            purchasePackagingSelect.value = "";
         }
 
 
@@ -1309,7 +1324,7 @@
                 phone: document.getElementById('settingsPhone').value,
                 email: document.getElementById('settingsEmail').value,
                 address: document.getElementById('settingsAddress').value,
-                lowStockThreshold: parseInt(document.getElementById('lowStockThreshold').value)
+                lowStockThreshold: parseFloat(document.getElementById('lowStockThreshold').value)
             };
             try {
                 const response = await fetch(`${API_BASE_URL}/settings`, {
@@ -1390,7 +1405,7 @@
                 packaging: document.getElementById('productPackaging').value,
                 hsn: document.getElementById('productHSN').value,
                 batch: document.getElementById('productBatch').value,
-                quantity: parseInt(document.getElementById('productQuantity').value),
+                quantity: parseFloat(document.getElementById('productQuantity').value),
                 mrp: parseFloat(document.getElementById('productMRP').value),
                 purchase_rate: parseFloat(document.getElementById('productPurchaseRate').value),
                 saleRate: parseFloat(document.getElementById('productSaleRate').value),
@@ -1471,7 +1486,7 @@
                     <td>${product.packaging || 'N/A'}</td>
                     <td>${product.hsn || 'N/A'}</td>
                     <td>${product.batch || 'N/A'}</td>
-                    <td>${product.quantity || 0}</td>
+                    <td>${parseFloat(product.quantity || 0).toFixed(2)}</td>
                     <td>₹${parseFloat(product.mrp || 0).toFixed(2)}</td>
                     <td>₹${parseFloat(product.purchase_rate || 0).toFixed(2)}</td>
                     <td>₹${parseFloat(product.sale_rate_inclusive || 0).toFixed(2)}</td>
@@ -1643,11 +1658,11 @@
 
         function addToBill() {
             const productId = Number(document.getElementById('billProductId').value);
-            const quantity = Number(document.getElementById('billQty').value);
+            const quantity = parseFloat(document.getElementById('billQty').value);
             const rate = Number(document.getElementById('billRate').value);
             const discount = Number(document.getElementById('billDiscount').value);
 
-            if (!productId || !quantity || quantity <= 0 || rate < 0) {
+            if (!productId || isNaN(quantity) || quantity <= 0 || rate < 0) {
                 showAlert('Please select a product and enter valid details.', 'danger');
                 return;
             }
@@ -1689,7 +1704,7 @@
                     <td>${item.expiry}</td>
                     <td>₹${Number(item.mrp).toFixed(2)}</td>
                     <td>₹${Number(item.rate).toFixed(2)}</td>
-                    <td>${item.quantity}</td>
+                    <td>${parseFloat(item.quantity).toFixed(2)}</td>
                     <td>${item.discount}%</td>
                     <td>${(Number(item.cgst) + Number(item.sgst))}%</td>
                     <td>₹${(amount + totalGST).toFixed(2)}</td>
@@ -1719,7 +1734,7 @@
 
         function calculateTotals() {
             let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
-            const overallDiscountPercent = Number(document.getElementById('overallDiscountPercent').value) || 0;
+            const overallDiscountPercent = parseFloat(document.getElementById('overallDiscountPercent').value) || 0;
 
             billItems.forEach(item => {
                 const itemSubtotal = item.rate * item.quantity;
@@ -1809,7 +1824,7 @@
                 const gst = taxable * ((Number(item.cgst) + Number(item.sgst)) / 100);
                 return `<tr>
                     <td>${item.product_name}</td> <td>${item.batch}</td> <td>${item.expiry}</td>
-                    <td>₹${Number(item.mrp).toFixed(2)}</td> <td>${item.quantity}</td> <td>₹${Number(item.rate).toFixed(2)}</td>
+                    <td>₹${Number(item.mrp).toFixed(2)}</td> <td>${parseFloat(item.quantity).toFixed(2)}</td> <td>₹${Number(item.rate).toFixed(2)}</td>
                     <td>${item.discount}%</td> <td>${(Number(item.cgst) + Number(item.sgst))}%</td> <td>₹${(taxable + gst).toFixed(2)}</td>
                 </tr>`;
             }).join('');
@@ -2002,7 +2017,7 @@
                 <tr>
                     <td>${item.product_name}</td>
                     <td><input type="text" value="${item.batch}" class="edit-batch" data-index="${i}" style="width:100px;"></td>
-                    <td><input type="number" value="${item.quantity}" class="edit-qty" data-index="${i}" style="width:60px;" oninput="recalculateEditedBillTotals()"></td>
+                    <td><input type="number" value="${parseFloat(item.quantity).toFixed(2)}" class="edit-qty" data-index="${i}" style="width:60px;" oninput="recalculateEditedBillTotals()" step="0.01"></td>
                     <td><input type="number" value="${item.rate}" class="edit-rate" data-index="${i}" step="0.01" style="width:80px;" oninput="recalculateEditedBillTotals()"></td>
                     <td><input type="number" value="${item.discount}" class="edit-discount" data-index="${i}" step="0.01" style="width:70px;" oninput="recalculateEditedBillTotals()"></td>
                     <td><button class="btn btn-danger btn-sm" onclick="removeEditedItem(${i})">Remove</button></td>
@@ -2016,14 +2031,14 @@
             const qtyInputs = document.querySelectorAll('.edit-qty');
             const rateInputs = document.querySelectorAll('.edit-rate');
             const discountInputs = document.querySelectorAll('.edit-discount');
-            const overallDiscountPercent = Number(document.getElementById('editOverallDiscount').value) || 0;
+            const overallDiscountPercent = parseFloat(document.getElementById('editOverallDiscount').value) || 0;
 
             let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
 
             window.currentEditingBill.items.forEach((item, i) => {
-                const qty = Number(qtyInputs[i].value);
-                const rate = Number(rateInputs[i].value);
-                const discount = Number(discountInputs[i].value);
+                const qty = parseFloat(qtyInputs[i].value);
+                const rate = parseFloat(rateInputs[i].value);
+                const discount = parseFloat(discountInputs[i].value);
                 
                 const itemSubtotal = rate * qty;
                 const itemDiscountAmount = itemSubtotal * (discount / 100);
@@ -2091,9 +2106,9 @@
             const updatedItems = window.currentEditingBill.items.map((item, i) => ({
                 ...item,
                 batch: batchInputs[i].value,
-                quantity: Number(qtyInputs[i].value),
-                rate: Number(rateInputs[i].value),
-                discount: Number(discountInputs[i].value)
+                quantity: parseFloat(qtyInputs[i].value),
+                rate: parseFloat(rateInputs[i].value),
+                discount: parseFloat(discountInputs[i].value)
             }));
 
             const payload = {
@@ -2185,7 +2200,8 @@
 
         function clearPurchaseProductForm() {
             document.getElementById('purchaseProductName').value = '';
-            document.getElementById('purchasePackaging').value = packagingTypes[0];
+            // FIX: Set packaging to the blank option
+            document.getElementById('purchasePackaging').value = "";
             document.getElementById('purchaseHSN').value = '';
             document.getElementById('purchaseBatch').value = '';
             document.getElementById('purchaseQty').value = '';
@@ -2216,13 +2232,16 @@
             const purchaseGst = parseFloat(document.getElementById('purchaseGstPercent').value) || 0;
             const saleGst = parseFloat(document.getElementById('purchaseSaleGstPercent').value) || 0;
             
+            // FIX: Check if packaging is selected
+            const selectedPackaging = document.getElementById('purchasePackaging').value;
+
             const item = {
                 productName: document.getElementById('purchaseProductName').value,
-                packaging: document.getElementById('purchasePackaging').value,
+                packaging: selectedPackaging,
                 hsn: document.getElementById('purchaseHSN').value,
                 batch: document.getElementById('purchaseBatch').value,
-                quantity: parseInt(document.getElementById('purchaseQty').value),
-                freeQuantity: parseInt(document.getElementById('purchaseFreeQty').value) || 0,
+                quantity: parseFloat(document.getElementById('purchaseQty').value),
+                freeQuantity: parseFloat(document.getElementById('purchaseFreeQty').value) || 0,
                 mrp: parseFloat(document.getElementById('purchaseMRP').value),
                 purchaseRate: parseFloat(document.getElementById('purchaseRate').value),
                 discount: parseFloat(document.getElementById('purchaseDiscount').value),
@@ -2236,7 +2255,8 @@
                 igst: purchaseTaxType === 'IGST' ? purchaseGst : 0,
             };
             
-            if (!item.productName || !item.batch || !item.hsn || !item.expiry ||
+            // FIX: Add check for empty packaging
+            if (!item.productName || !item.batch || !item.hsn || !item.expiry || !item.packaging ||
                 isNaN(item.quantity) || item.quantity <= 0 || 
                 isNaN(item.purchaseRate) || isNaN(item.saleRate) || isNaN(item.saleRateIncl) || isNaN(item.mrp)) {
                  showAlert('Please fill all required product fields (*) with valid values.', 'danger');
@@ -2270,8 +2290,8 @@
                 row.innerHTML = `
                     <td>${item.productName}</td>
                     <td>${item.batch}</td>
-                    <td>${item.quantity}</td>
-                    <td>${item.freeQuantity}</td>
+                    <td>${parseFloat(item.quantity).toFixed(2)}</td>
+                    <td>${parseFloat(item.freeQuantity).toFixed(2)}</td>
                     <td>₹${Number(item.purchaseRate).toFixed(2)}</td>
                     <td>${item.discount.toFixed(2)}%</td>
                     <td>₹${discountAmount.toFixed(2)}</td>
@@ -2292,15 +2312,15 @@
         }
 
         function calculatePurchaseTotal() {
-            const overallDiscountPercent = Number(document.getElementById('purchaseOverallDiscountPercent').value) || 0;
+            const overallDiscountPercent = parseFloat(document.getElementById('purchaseOverallDiscountPercent').value) || 0;
             
             let totalPreTax = 0;
             let totalGstAmount = 0;
 
             purchaseBillItems.forEach(item => {
                 const base = (item.purchaseRate || 0) * (item.quantity || 0);
-                const itemTaxable = base * (1 - ((item.discount || 0) / 100));
-                totalPreTax += itemTaxable;
+                const itemDiscounted = base * (1 - ((item.discount || 0) / 100));
+                totalPreTax += itemDiscounted;
             });
 
             const overallDiscountAmount = totalPreTax * (overallDiscountPercent / 100);
@@ -2308,10 +2328,10 @@
 
             purchaseBillItems.forEach(item => {
                 const base = (item.purchaseRate || 0) * (item.quantity || 0);
-                const itemTaxableAfterItemDisc = base * (1 - ((item.discount || 0) / 100));
-                const itemFinalTaxable = itemTaxableAfterItemDisc * (1 - (overallDiscountPercent / 100));
-                const gstPercent = item.igst > 0 ? item.igst : (item.cgst + item.sgst);
-                const itemGstAmount = itemFinalTaxable * (gstPercent / 100);
+                const itemDiscounted = base * (1 - ((item.discount || 0) / 100));
+                const finalDiscounted = itemDiscounted * (1 - (overallDiscountPercent / 100));
+                const totalGstPercent = (Number(item.igst) || 0) > 0 ? (Number(item.igst) || 0) : ((Number(item.cgst) || 0) + (Number(item.sgst) || 0));
+                const itemGstAmount = finalDiscounted * (totalGstPercent / 100);
                 totalGstAmount += itemGstAmount;
             });
 
@@ -2368,7 +2388,7 @@
                 const itemsHtml = bill.items.map(item => `
                     <tr>
                         <td>${item.product_name}</td> <td>${item.packaging || ''}</td> <td>${item.batch}</td>
-                        <td>${item.quantity}</td> <td>${item.free_quantity || 0}</td> <td>₹${Number(item.purchase_rate).toFixed(2)}</td> <td>${item.discount || 0}%</td>
+                        <td>${parseFloat(item.quantity).toFixed(2)}</td> <td>${parseFloat(item.free_quantity || 0).toFixed(2)}</td> <td>₹${Number(item.purchase_rate).toFixed(2)}</td> <td>${item.discount || 0}%</td>
                         <td>${item.igst > 0 ? item.igst + '% (IGST)' : (item.cgst + item.sgst) + '%'}</td>
                         <td>₹${Number(item.amount).toFixed(2)}</td>
                     </tr>
@@ -2471,7 +2491,7 @@
         async function searchCustomers() {
             const query = document.getElementById('customerSearch').value.toLowerCase();
             try {
-                const response = await fetch(`${API_BASE_URL}/customers/search?query=${query}`);
+                const response = await fetch(`${API_BASE_URL}/customers/search?query=${encodeURIComponent(query)}`);
                 updateCustomersTable(await response.json());
             } catch (error) {
                 showAlert('Failed to search customers.', 'danger');
@@ -2603,4 +2623,3 @@
     </script>
 </body>
 </html>
-

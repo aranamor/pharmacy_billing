@@ -19,7 +19,7 @@ id INT AUTO_INCREMENT PRIMARY KEY,
 name VARCHAR(255) NOT NULL,
 hsn VARCHAR(255) NOT NULL,
 batch VARCHAR(255) NOT NULL,
-quantity INT NOT NULL,
+quantity DECIMAL(10, 2) NOT NULL, -- FIX: Changed to DECIMAL to allow fractional quantities
 packaging VARCHAR(50),
 mrp DECIMAL(10, 2) NOT NULL,
 purchase_rate DECIMAL(10, 2) NOT NULL,
@@ -67,7 +67,7 @@ product_name VARCHAR(255) NOT NULL,
 batch VARCHAR(255),
 mrp DECIMAL(10, 2),
 rate DECIMAL(10, 2),
-quantity INT NOT NULL,
+quantity DECIMAL(10, 2) NOT NULL, -- FIX: Changed to DECIMAL to allow fractional quantities
 expiry VARCHAR(7),
 discount DECIMAL(5, 2),
 cgst DECIMAL(5, 2) DEFAULT 0,
@@ -101,8 +101,8 @@ product_name VARCHAR(255) NOT NULL,
 hsn VARCHAR(255) NOT NULL,
 batch VARCHAR(255) NOT NULL,
 packaging VARCHAR(50),
-quantity INT NOT NULL,
-free_quantity INT NOT NULL DEFAULT 0,
+quantity DECIMAL(10, 2) NOT NULL, -- FIX: Changed to DECIMAL to allow fractional quantities
+free_quantity DECIMAL(10, 2) NOT NULL DEFAULT 0, -- FIX: Changed to DECIMAL
 mrp DECIMAL(10, 2) NOT NULL,
 purchase_rate DECIMAL(10, 2) NOT NULL,
 sale_rate DECIMAL(10, 2) NOT NULL, -- Exclusive of GST
