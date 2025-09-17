@@ -4,7 +4,24 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - Pharmacy Billing</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
+        :root {
+            --primary-gradient: linear-gradient(135deg, #6a11cb 0%, #2575fc 100%);
+            --background-color: #f4f7f9;
+            --card-background: #ffffff;
+            --text-primary: #1e293b;
+            --text-secondary: #64748b;
+            --border-color: #e2e8f0;
+            --accent-color: #4f46e5;
+            --error-color: #ef4444;
+            --shadow-color: rgba(79, 70, 229, 0.2);
+            --shadow-light: rgba(0, 0, 0, 0.05);
+            --shadow-strong: rgba(0, 0, 0, 0.15);
+        }
+
         * {
             margin: 0;
             padding: 0;
@@ -12,102 +29,117 @@
         }
 
         body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Poppins', sans-serif;
+            background-color: var(--background-color);
+            background-image: var(--primary-gradient);
             min-height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 20px;
+            padding: 2rem;
+            color: var(--text-primary);
         }
 
         .login-container {
             width: 100%;
-            max-width: 400px;
-            background: white;
-            border-radius: 20px;
-            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 450px;
+            background: var(--card-background);
+            border-radius: 24px;
+            box-shadow: 0 25px 50px -12px var(--shadow-strong);
             overflow: hidden;
-            padding: 40px;
+            padding: 3rem;
             text-align: center;
-            animation: fadeIn 0.5s ease-in-out;
+            animation: fadeIn 0.6s ease-in-out;
+            border: 1px solid var(--border-color);
         }
 
         @keyframes fadeIn {
-            from { opacity: 0; transform: scale(0.95); }
+            from { opacity: 0; transform: scale(0.9); }
             to { opacity: 1; transform: scale(1); }
         }
 
         .logo-container {
-            margin-bottom: 20px;
+            margin: 0 auto 1.5rem auto;
+            max-width: 250px;
         }
 
         .logo-container img {
-            max-width: 200px;
+            width: 100%;
             height: auto;
         }
 
         .login-container h1 {
-            font-size: 1.8em;
-            margin-bottom: 10px;
-            color: #333;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+            color: var(--text-primary);
         }
 
         .login-container p {
-            color: #6c757d;
-            margin-bottom: 30px;
+            color: var(--text-secondary);
+            margin-bottom: 2.5rem;
+            font-size: 1.1rem;
         }
 
         .form-group {
             text-align: left;
-            margin-bottom: 20px;
+            margin-bottom: 1.5rem;
         }
 
         .form-group label {
             display: block;
-            margin-bottom: 5px;
+            margin-bottom: 0.5rem;
             font-weight: 600;
-            color: #495057;
-            font-size: 14px;
+            color: var(--text-primary);
+            font-size: 1rem;
         }
 
         .form-group input {
             width: 100%;
-            padding: 12px 15px;
-            border: 2px solid #dee2e6;
-            border-radius: 8px;
-            font-size: 14px;
-            transition: all 0.3s;
+            padding: 1rem;
+            border: 2px solid var(--border-color);
+            border-radius: 12px;
+            font-size: 1rem;
+            font-family: 'Poppins', sans-serif;
+            transition: all 0.3s ease;
         }
 
         .form-group input:focus {
             outline: none;
-            border-color: #667eea;
-            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+            border-color: var(--accent-color);
+            box-shadow: 0 0 0 4px var(--shadow-color);
         }
 
         .btn {
             width: 100%;
-            padding: 12px 30px;
+            padding: 1rem;
             border: none;
-            border-radius: 8px;
-            font-size: 16px;
-            font-weight: 600;
+            border-radius: 12px;
+            font-size: 1.1rem;
+            font-weight: 700;
             cursor: pointer;
-            transition: all 0.3s;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            transition: all 0.3s ease;
+            background: var(--primary-gradient);
             color: white;
+            letter-spacing: 0.5px;
         }
 
         .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+            transform: translateY(-3px);
+            box-shadow: 0 10px 20px -5px var(--shadow-color);
+        }
+        
+        .btn:active {
+            transform: translateY(-1px);
+            box-shadow: 0 5px 10px -3px var(--shadow-color);
         }
 
         #error-message {
-            color: #dc3545;
-            margin-top: 15px;
-            font-weight: 500;
+            color: var(--error-color);
+            margin-top: 1.5rem;
+            font-weight: 600;
+            font-size: 1rem;
+            min-height: 1.5rem;
             display: none;
         }
     </style>
@@ -118,8 +150,8 @@
         <div class="logo-container">
             <img src="logo2.png" alt="Shop Logo">
         </div>
-        <h1>Welcome Back</h1>
-        <p>Please log in to access the billing system.</p>
+        <h1>Welcome Back!</h1>
+        <p>Log in to manage your pharmacy billing.</p>
 
         <form id="loginForm">
             <div class="form-group">
@@ -130,7 +162,7 @@
                 <label for="password">Password</label>
                 <input type="password" id="password" name="password" required autocomplete="current-password">
             </div>
-            <button type="submit" class="btn">Login</button>
+            <button type="submit" class="btn">Login Securely</button>
             <p id="error-message"></p>
         </form>
     </div>
