@@ -5,13 +5,27 @@ CREATE DATABASE IF NOT EXISTS pharmacy_db;
 USE pharmacy_db;
 
 -- Drop tables if they exist to start fresh
+DROP TABLE IF EXISTS stock_adjustments;
 DROP TABLE IF EXISTS bill_items;
 DROP TABLE IF EXISTS bills;
 DROP TABLE IF EXISTS purchase_bill_items;
 DROP TABLE IF EXISTS purchase_bills;
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS customers;
+DROP TABLE IF EXISTS suppliers;
 DROP TABLE IF EXISTS settings;
+
+
+-- Create the suppliers table
+CREATE TABLE suppliers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE,
+    contact_person VARCHAR(255),
+    phone VARCHAR(20),
+    email VARCHAR(255),
+    address TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 
 -- Create the products table
 CREATE TABLE products (
@@ -19,7 +33,7 @@ id INT AUTO_INCREMENT PRIMARY KEY,
 name VARCHAR(255) NOT NULL,
 hsn VARCHAR(255) NOT NULL,
 batch VARCHAR(255) NOT NULL,
-quantity DECIMAL(10, 2) NOT NULL, -- FIX: Changed to DECIMAL to allow fractional quantities
+quantity DECIMAL(10, 2) NOT NULL,
 packaging VARCHAR(50),
 mrp DECIMAL(10, 2) NOT NULL,
 purchase_rate DECIMAL(10, 2) NOT NULL,
@@ -28,7 +42,10 @@ sale_rate_inclusive DECIMAL(10, 2) NOT NULL, -- Inclusive of GST
 expiry VARCHAR(7) NOT NULL,
 cgst DECIMAL(5, 2) NOT NULL DEFAULT 0,
 sgst DECIMAL(5, 2) NOT NULL DEFAULT 0,
-UNIQUE KEY unique_product (name, batch)
+UNIQUE KEY unique_product (name, batch),
+-- UPDATED: Added indexes for faster searching on name and batch.
+INDEX idx_name (name),
+INDEX idx_batch (batch)
 );
 
 -- Create the customers table
@@ -40,7 +57,7 @@ doctor_name VARCHAR(255),
 UNIQUE KEY unique_customer_mobile (mobile)
 );
 
--- Create the bills table (Sales bills do not have IGST)
+-- Create the bills table (Sales bills)
 CREATE TABLE bills (
 id INT AUTO_INCREMENT PRIMARY KEY,
 bill_number VARCHAR(255) NOT NULL,
@@ -54,30 +71,33 @@ total_discount DECIMAL(10, 2) NOT NULL,
 total_cgst DECIMAL(10, 2) NOT NULL DEFAULT 0,
 total_sgst DECIMAL(10, 2) NOT NULL DEFAULT 0,
 grand_total DECIMAL(10, 2) NOT NULL,
+status VARCHAR(20) NOT NULL DEFAULT 'Completed', -- Added for Hold/Recall feature
 customer_id INT,
 FOREIGN KEY (customer_id) REFERENCES customers(id) ON DELETE SET NULL
 );
 
--- Create the bill_items table (Sales items do not have IGST)
+-- Create the bill_items table (Sales items)
 CREATE TABLE bill_items (
 id INT AUTO_INCREMENT PRIMARY KEY,
 bill_id INT NOT NULL,
-product_id INT,
+product_id INT, -- Made this not null to ensure data integrity for reporting
 product_name VARCHAR(255) NOT NULL,
 batch VARCHAR(255),
 mrp DECIMAL(10, 2),
 rate DECIMAL(10, 2),
-quantity DECIMAL(10, 2) NOT NULL, -- FIX: Changed to DECIMAL to allow fractional quantities
+quantity DECIMAL(10, 2) NOT NULL,
 expiry VARCHAR(7),
 discount DECIMAL(5, 2),
 cgst DECIMAL(5, 2) DEFAULT 0,
 sgst DECIMAL(5, 2) DEFAULT 0,
-FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE
+FOREIGN KEY (bill_id) REFERENCES bills(id) ON DELETE CASCADE,
+FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
 );
 
 -- Create the purchase_bills table
 CREATE TABLE purchase_bills (
 id INT AUTO_INCREMENT PRIMARY KEY,
+supplier_id INT, -- Added for supplier tracking
 supplier_name VARCHAR(255) NOT NULL,
 bill_number VARCHAR(255) NOT NULL,
 bill_date DATE NOT NULL,
@@ -89,7 +109,8 @@ taxable_amount DECIMAL(10, 2) NOT NULL,
 total_gst_amount DECIMAL(10, 2) NOT NULL,
 rounding DECIMAL(10, 2) NOT NULL,
 grand_total DECIMAL(10, 2) NOT NULL,
-created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL
 );
 
 
@@ -101,8 +122,8 @@ product_name VARCHAR(255) NOT NULL,
 hsn VARCHAR(255) NOT NULL,
 batch VARCHAR(255) NOT NULL,
 packaging VARCHAR(50),
-quantity DECIMAL(10, 2) NOT NULL, -- FIX: Changed to DECIMAL to allow fractional quantities
-free_quantity DECIMAL(10, 2) NOT NULL DEFAULT 0, -- FIX: Changed to DECIMAL
+quantity DECIMAL(10, 2) NOT NULL,
+free_quantity DECIMAL(10, 2) NOT NULL DEFAULT 0,
 mrp DECIMAL(10, 2) NOT NULL,
 purchase_rate DECIMAL(10, 2) NOT NULL,
 sale_rate DECIMAL(10, 2) NOT NULL, -- Exclusive of GST
@@ -114,6 +135,17 @@ sgst DECIMAL(5, 2) NOT NULL DEFAULT 0,
 igst DECIMAL(5, 2) NOT NULL DEFAULT 0,
 amount DECIMAL(10, 2) NOT NULL,
 FOREIGN KEY (purchase_bill_id) REFERENCES purchase_bills(id) ON DELETE CASCADE
+);
+
+-- Create table for stock adjustments (expiry, returns)
+CREATE TABLE stock_adjustments (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    product_id INT NOT NULL,
+    quantity_adjusted DECIMAL(10, 2) NOT NULL, -- Negative for removal
+    reason VARCHAR(50) NOT NULL, -- 'Expired', 'Returned', 'Damaged', 'Manual Adjustment'
+    notes TEXT,
+    adjustment_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
 );
 
 -- Create the settings table

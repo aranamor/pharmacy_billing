@@ -122,8 +122,8 @@ app.get('/api/current-ist-date', async (req, res) => {
 app.get('/api/dashboard-stats', async (req, res) => {
     try {
         const today = 'CURDATE()';
-        const [salesTodayResult] = await pool.query(`SELECT SUM(grand_total) as totalSales, COUNT(id) as billCount FROM bills WHERE DATE(bill_date) = ${today}`);
-        const [inventoryStatsResult] = await pool.query(`SELECT SUM(quantity) as totalItems FROM products`);
+        const [salesTodayResult] = await pool.query(`SELECT SUM(grand_total) as totalSales, COUNT(id) as billCount FROM bills WHERE DATE(bill_date) = ${today} AND status = 'Completed'`);
+        const [inventoryStatsResult] = await pool.query(`SELECT COUNT(id) as totalItems FROM products`);
         const [settingsRows] = await pool.query("SELECT setting_value FROM settings WHERE setting_key = 'lowStockThreshold'");
         const lowStockThreshold = settingsRows.length > 0 ? Number(settingsRows[0].setting_value) : 10;
         const [lowStockResult] = await pool.query('SELECT COUNT(id) as lowStockCount FROM products WHERE quantity <= ?', [lowStockThreshold]);
@@ -133,7 +133,7 @@ app.get('/api/dashboard-stats', async (req, res) => {
             WHERE expiry IS NOT NULL 
             AND STR_TO_DATE(CONCAT(expiry, '-01'), '%Y-%m-%d') BETWEEN CURDATE() AND DATE_ADD(CURDATE(), INTERVAL 1 MONTH)
         `);
-        const [recentTransactions] = await pool.query('SELECT * FROM bills ORDER BY id DESC LIMIT 5');
+        const [recentTransactions] = await pool.query("SELECT * FROM bills WHERE status = 'Completed' ORDER BY id DESC LIMIT 5");
         res.json({
             todaySales: salesTodayResult[0].totalSales || 0,
             todayBillsCount: salesTodayResult[0].billCount || 0,
@@ -151,7 +151,7 @@ app.get('/api/dashboard-stats', async (req, res) => {
 // ---------- PRODUCTS ----------
 app.get('/api/products', async (req, res) => {
     try {
-        const rows = await query('SELECT * FROM products ORDER BY id DESC');
+        const rows = await query('SELECT * FROM products ORDER BY name ASC');
         res.json(rows);
     } catch (err) {
         console.error('GET /api/products error:', err);
@@ -173,17 +173,18 @@ app.get('/api/products/:id', async (req, res) => {
     }
 });
 
+// Real-time search endpoint for billing
 app.get('/api/products/search', async (req, res) => {
     try {
         const q = (req.query.query || '').trim();
         if (!q) {
-            const rows = await query('SELECT * FROM products WHERE quantity > 0 ORDER BY id DESC LIMIT 50');
-            return res.json(rows);
+            return res.json([]);
         }
         const like = `%${q}%`;
+        // This query robustly searches by name or batch, which is ideal for a pharmacy system.
         const rows = await query(
-            `SELECT * FROM products WHERE (name LIKE ? OR batch LIKE ? OR hsn LIKE ?) AND quantity > 0 ORDER BY id DESC LIMIT 50`,
-            [like, like, like]
+            `SELECT * FROM products WHERE (name LIKE ? OR batch LIKE ?) AND quantity > 0 ORDER BY name ASC LIMIT 50`,
+            [like, like]
         );
         res.json(rows);
     } catch (err) {
@@ -243,6 +244,44 @@ app.delete('/api/products/:id', async (req, res) => {
     }
 });
 
+
+// ---------- STOCK ADJUSTMENTS (EXPIRY/RETURNS) ----------
+app.post('/api/stock-adjustments', async (req, res) => {
+    const conn = await pool.getConnection();
+    try {
+        const { productId, quantity, reason, notes } = req.body;
+        const adjustedQty = -Math.abs(parseFloat(quantity)); // Ensure it's a negative number for removal
+
+        if (!productId || isNaN(adjustedQty) || adjustedQty === 0) {
+            return res.status(400).json({ error: 'Invalid product or quantity for adjustment.' });
+        }
+
+        await conn.beginTransaction();
+
+        // Log the adjustment
+        await conn.query(
+            'INSERT INTO stock_adjustments (product_id, quantity_adjusted, reason, notes) VALUES (?, ?, ?, ?)',
+            [productId, adjustedQty, reason, notes]
+        );
+
+        // Update product quantity
+        await conn.query(
+            'UPDATE products SET quantity = GREATEST(0, quantity + ?) WHERE id = ?',
+            [adjustedQty, productId]
+        );
+
+        await conn.commit();
+        res.json({ message: 'Stock adjusted successfully.' });
+    } catch (err) {
+        await conn.rollback();
+        console.error('POST /api/stock-adjustments error:', err);
+        res.status(500).json({ error: 'Failed to adjust stock.' });
+    } finally {
+        conn.release();
+    }
+});
+
+
 // ---------- CUSTOMERS ----------
 app.get('/api/customers', async (req, res) => {
     try {
@@ -253,7 +292,6 @@ app.get('/api/customers', async (req, res) => {
     }
 });
 
-// BUG FIX: Added the missing /api/customers/search endpoint
 app.get('/api/customers/search', async (req, res) => {
     try {
         const q = (req.query.query || '').trim();
@@ -268,6 +306,27 @@ app.get('/api/customers/search', async (req, res) => {
         res.status(500).json({ error: 'Search failed' });
     }
 });
+
+// Get customer purchase history
+app.get('/api/customers/:id/history', async (req, res) => {
+    try {
+        const customerId = Number(req.params.id);
+        const rows = await query(`
+            SELECT b.id, b.bill_number, DATE_FORMAT(b.bill_date, '%Y-%m-%d') as bill_date, b.grand_total, 
+                   bi.product_name, bi.quantity, bi.rate
+            FROM bills b
+            JOIN bill_items bi ON b.id = bi.bill_id
+            WHERE b.customer_id = ? AND b.status = 'Completed'
+            ORDER BY b.bill_date DESC, b.id DESC
+            LIMIT 20 
+        `, [customerId]);
+        res.json(rows);
+    } catch (err) {
+        console.error('GET /api/customers/:id/history error:', err);
+        res.status(500).json({ error: "Failed to fetch customer's purchase history." });
+    }
+});
+
 
 app.get('/api/customers/:id', async (req, res) => {
     try {
@@ -327,6 +386,22 @@ app.delete('/api/customers/:id', async (req, res) => {
     }
 });
 
+// ---------- SUPPLIERS ----------
+app.get('/api/suppliers', async (req, res) => {
+    try {
+        const q = req.query.query || '';
+        const like = `%${q}%`;
+        const sql = q 
+            ? 'SELECT * FROM suppliers WHERE name LIKE ? ORDER BY name ASC'
+            : 'SELECT * FROM suppliers ORDER BY name ASC';
+        const params = q ? [like] : [];
+        const rows = await query(sql, params);
+        res.json(rows);
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to fetch suppliers' });
+    }
+});
+
 // ---------- SETTINGS ----------
 app.get('/api/settings', async (req, res) => {
     try {
@@ -359,10 +434,21 @@ app.post('/api/settings', async (req, res) => {
 // ---------- BILLS (SALES) ----------
 app.get('/api/bills', async (req, res) => {
     try {
-        const rows = await query('SELECT * FROM bills ORDER BY id DESC');
+        const rows = await query("SELECT * FROM bills WHERE status = 'Completed' ORDER BY id DESC");
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: 'Failed to list bills' });
+    }
+});
+
+// Get Held Bills
+app.get('/api/held-bills', async (req, res) => {
+    try {
+        const rows = await query("SELECT * FROM bills WHERE status = 'Held' ORDER BY id DESC");
+        res.json(rows);
+    } catch (err) {
+        console.error('GET /api/held-bills error:', err);
+        res.status(500).json({ error: 'Failed to fetch held bills' });
     }
 });
 
@@ -374,7 +460,7 @@ app.get('/api/bills/:id', async (req, res) => {
             conn.release();
             return res.status(404).json({ error: 'Bill not found' });
         }
-        const [items] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ?', [Number(req.params.id)]);
+        const [items] = await conn.query('SELECT bi.*, p.name as product_name FROM bill_items bi LEFT JOIN products p ON bi.product_id = p.id WHERE bi.bill_id = ?', [Number(req.params.id)]);
         conn.release();
         res.json({ ...bRows[0], items });
     } catch (err) {
@@ -386,17 +472,21 @@ app.get('/api/bills/:id', async (req, res) => {
 app.post('/api/bills', async (req, res) => {
     const conn = await pool.getConnection();
     try {
-        const { patientName, patientMobile, doctorName, items, billDate, overallDiscountPercent } = req.body;
+        const { patientName, patientMobile, doctorName, items, billDate, overallDiscountPercent, status = 'Completed' } = req.body;
+        
         let customerId = null;
         if (patientMobile) {
             const [existing] = await conn.query('SELECT id FROM customers WHERE mobile = ? LIMIT 1', [patientMobile]);
             if (existing.length > 0) {
                 customerId = existing[0].id;
+                // Optionally update customer name if it has changed
+                await conn.query('UPDATE customers SET name = ?, doctor_name = ? WHERE id = ?', [patientName, doctorName, customerId]);
             } else {
                 const [newCustomer] = await conn.query('INSERT INTO customers (name, mobile, doctor_name) VALUES (?, ?, ?)', [patientName, patientMobile, doctorName]);
                 customerId = newCustomer.insertId;
             }
         }
+        
         let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
         const overallDiscount = Number(overallDiscountPercent) || 0;
         for (const it of items) {
@@ -414,8 +504,8 @@ app.post('/api/bills', async (req, res) => {
         await conn.beginTransaction();
 
         const [billInsert] = await conn.query(
-            `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id, bill_date, overall_discount_percent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            ['TEMP', patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, billDate || new Date(), overallDiscount]
+            `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id, bill_date, overall_discount_percent, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            ['TEMP', patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, billDate || new Date(), overallDiscount, status]
         );
         const billId = billInsert.insertId;
         const year = new Date().getFullYear();
@@ -426,15 +516,16 @@ app.post('/api/bills', async (req, res) => {
         for (const it of items) {
             await conn.query(
                 `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                 [billId, it.product_id, it.name, it.batch, it.mrp, it.rate, parseFloat(it.quantity), it.expiry, it.discount, it.cgst, it.sgst]
+                 [billId, it.id, it.name, it.batch, it.mrp, it.rate, parseFloat(it.quantity), it.expiry, it.discount, it.cgst, it.sgst]
             );
-            if (it.product_id) {
-                await conn.query(`UPDATE products SET quantity = GREATEST(0, quantity - ?) WHERE id = ?`, [parseFloat(it.quantity), it.product_id]);
+            // Only adjust stock for completed bills
+            if (it.id && status === 'Completed') {
+                await conn.query(`UPDATE products SET quantity = GREATEST(0, quantity - ?) WHERE id = ?`, [parseFloat(it.quantity), it.id]);
             }
         }
         await conn.commit();
         conn.release();
-        res.json({ message: 'Bill created', id: billId, bill_number: billNumber });
+        res.json({ message: `Bill ${status === 'Held' ? 'held' : 'created'}`, id: billId, bill_number: billNumber });
     } catch (err) {
         await conn.rollback().catch(() => {});
         conn.release();
@@ -447,8 +538,16 @@ app.put('/api/bills/:id', async (req, res) => {
     const conn = await pool.getConnection();
     try {
         const billId = Number(req.params.id);
+        const { items, patient_name, patient_mobile, doctor_name, overall_discount_percent, status = 'Completed' } = req.body;
+        
+        const [existingBill] = await conn.query('SELECT * FROM bills WHERE id = ?', [billId]);
+        if (!existingBill.length) {
+            return res.status(404).json({ error: 'Bill not found.' });
+        }
+        const wasHeld = existingBill[0].status === 'Held';
+
         const [existingItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ?', [billId]);
-        const { items, patient_name, patient_mobile, doctor_name, overall_discount_percent } = req.body;
+        
         const overallDiscount = Number(overall_discount_percent) || 0;
         let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
         for (const it of items) {
@@ -464,30 +563,37 @@ app.put('/api/bills/:id', async (req, res) => {
         }
         const grandTotal = subtotal - totalDiscount + totalCGST + totalSGST;
         await conn.beginTransaction();
-        const existingMap = {};
-        for (const it of existingItems) {
-            if(it.product_id) existingMap[it.product_id] = (existingMap[it.product_id] || 0) + it.quantity;
-        }
-        const newMap = {};
-        for (const it of items) {
-             if(it.product_id) newMap[it.product_id] = (newMap[it.product_id] || 0) + parseFloat(it.quantity);
-        }
-        for (const k of new Set([...Object.keys(existingMap), ...Object.keys(newMap)])) {
-            const delta = (existingMap[k] || 0) - (newMap[k] || 0);
-            if (delta !== 0) {
-                 await conn.query('UPDATE products SET quantity = quantity + ? WHERE id = ?', [delta, Number(k)]);
+        
+        // Stock adjustment logic
+        if (status === 'Completed') {
+            const existingMap = {};
+            if (!wasHeld) { // Only revert stock if it was previously completed
+                for (const it of existingItems) {
+                    if(it.product_id) existingMap[it.product_id] = (existingMap[it.product_id] || 0) + it.quantity;
+                }
+            }
+            const newMap = {};
+            for (const it of items) {
+                 if(it.product_id || it.id) newMap[it.product_id || it.id] = (newMap[it.product_id || it.id] || 0) + parseFloat(it.quantity);
+            }
+            for (const k of new Set([...Object.keys(existingMap), ...Object.keys(newMap)])) {
+                const delta = (existingMap[k] || 0) - (newMap[k] || 0);
+                if (delta !== 0) {
+                     await conn.query('UPDATE products SET quantity = GREATEST(0, quantity + ?) WHERE id = ?', [delta, Number(k)]);
+                }
             }
         }
+
         await conn.query('DELETE FROM bill_items WHERE bill_id = ?', [billId]);
         for (const it of items) {
             await conn.query(
                 `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                 [billId, it.product_id, it.product_name, it.batch, it.mrp, it.rate, parseFloat(it.quantity), it.expiry, it.discount, it.cgst, it.sgst]
+                 [billId, it.product_id || it.id, it.product_name || it.name, it.batch, it.mrp, it.rate, parseFloat(it.quantity), it.expiry, it.discount, it.cgst, it.sgst]
             );
         }
         await conn.query(
-            `UPDATE bills SET patient_name = ?, patient_mobile = ?, doctor_name = ?, subtotal = ?, total_discount = ?, total_cgst = ?, total_sgst = ?, grand_total = ?, overall_discount_percent = ? WHERE id = ?`,
-            [patient_name, patient_mobile, doctor_name, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, overallDiscount, billId]
+            `UPDATE bills SET patient_name = ?, patient_mobile = ?, doctor_name = ?, subtotal = ?, total_discount = ?, total_cgst = ?, total_sgst = ?, grand_total = ?, overall_discount_percent = ?, status = ? WHERE id = ?`,
+            [patient_name, patient_mobile, doctor_name, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, overallDiscount, status, billId]
         );
         await conn.commit();
         conn.release();
@@ -539,6 +645,16 @@ app.post('/api/purchases', async (req, res) => {
             return res.status(400).json({ error: 'Missing required fields for purchase bill.' });
         }
         
+        // Find or create supplier
+        let supplierId;
+        const [existingSupplier] = await conn.query('SELECT id FROM suppliers WHERE name = ?', [supplierName]);
+        if (existingSupplier.length > 0) {
+            supplierId = existingSupplier[0].id;
+        } else {
+            const [newSupplier] = await conn.query('INSERT INTO suppliers (name) VALUES (?)', [supplierName]);
+            supplierId = newSupplier.insertId;
+        }
+
         const overallDiscount = Number(overallDiscountPercent) || 0;
 
         let totalPreTax = 0;
@@ -568,8 +684,8 @@ app.post('/api/purchases', async (req, res) => {
         await conn.beginTransaction();
 
         const [purchaseInsert] = await conn.query(
-            `INSERT INTO purchase_bills (supplier_name, bill_number, bill_date, tax_type, total_pre_tax, overall_discount_percent, overall_discount_amount, taxable_amount, total_gst_amount, rounding, grand_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [supplierName, billNumber, billDate, taxType, totalPreTax, overallDiscount, overallDiscountAmount, taxableAmount, totalGstAmount, rounding, grandTotal]
+            `INSERT INTO purchase_bills (supplier_id, supplier_name, bill_number, bill_date, tax_type, total_pre_tax, overall_discount_percent, overall_discount_amount, taxable_amount, total_gst_amount, rounding, grand_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [supplierId, supplierName, billNumber, billDate, taxType, totalPreTax, overallDiscount, overallDiscountAmount, taxableAmount, totalGstAmount, rounding, grandTotal]
         );
         const purchaseBillId = purchaseInsert.insertId;
 
@@ -637,11 +753,11 @@ app.get('/api/reports', async (req, res) => {
 
         switch(type) {
             case 'sales':
-                queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, patient_name, grand_total FROM bills WHERE DATE(bill_date) BETWEEN ? AND ? ORDER BY bill_date DESC`;
+                queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, patient_name, grand_total FROM bills WHERE status = 'Completed' AND DATE(bill_date) BETWEEN ? AND ? ORDER BY bill_date DESC`;
                 reportData = await query(queryStr, [fromDate, toDate]);
                 break;
             case 'gst':
-                queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, subtotal, total_discount, (subtotal - total_discount) as taxable_value, total_cgst, total_sgst, grand_total FROM bills WHERE DATE(bill_date) BETWEEN ? AND ? ORDER BY bill_date DESC`;
+                queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, subtotal, total_discount, (subtotal - total_discount) as taxable_value, total_cgst, total_sgst, grand_total FROM bills WHERE status = 'Completed' AND DATE(bill_date) BETWEEN ? AND ? ORDER BY bill_date DESC`;
                 reportData = await query(queryStr, [fromDate, toDate]);
                 break;
             case 'inventory':
@@ -652,10 +768,48 @@ app.get('/api/reports', async (req, res) => {
                 queryStr = `SELECT bill_number, supplier_name, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, tax_type, grand_total FROM purchase_bills WHERE bill_date BETWEEN ? AND ? ORDER BY bill_date DESC`;
                 reportData = await query(queryStr, [fromDate, toDate]);
                 break;
+            case 'supplier_purchases':
+                queryStr = `SELECT s.name as supplier_name, pb.bill_number, DATE_FORMAT(pb.bill_date, '%Y-%m-%d') as date, pbi.product_name, pbi.quantity, pbi.purchase_rate, pbi.amount FROM purchase_bill_items pbi JOIN purchase_bills pb ON pbi.purchase_bill_id = pb.id JOIN suppliers s ON pb.supplier_id = s.id WHERE pb.bill_date BETWEEN ? AND ? ORDER BY s.name, pb.bill_date`;
+                reportData = await query(queryStr, [fromDate, toDate]);
+                break;
             case 'expiry':
                  queryStr = `SELECT name, batch, quantity, expiry FROM products WHERE expiry IS NOT NULL AND STR_TO_DATE(CONCAT(expiry, '-01'), '%Y-%m-%d') < CURDATE() ORDER BY expiry`;
                  reportData = await query(queryStr);
                  break;
+            case 'profitability':
+                queryStr = `
+                    SELECT
+                        bi.product_name,
+                        p.batch,
+                        p.purchase_rate,
+                        SUM(bi.quantity) AS total_quantity_sold,
+                        AVG(bi.rate) AS avg_sale_rate,
+                        SUM(bi.quantity * (bi.rate - p.purchase_rate)) AS estimated_gross_profit
+                    FROM bill_items bi
+                    JOIN products p ON bi.product_id = p.id
+                    JOIN bills b ON bi.bill_id = b.id
+                    WHERE b.status = 'Completed' AND DATE(b.bill_date) BETWEEN ? AND ?
+                    GROUP BY bi.product_name, p.batch, p.purchase_rate
+                    ORDER BY estimated_gross_profit DESC
+                `;
+                reportData = await query(queryStr, [fromDate, toDate]);
+                break;
+            case 'movement':
+                queryStr = `
+                    SELECT
+                        bi.product_name,
+                        p.batch,
+                        SUM(bi.quantity) as total_quantity_sold,
+                        COUNT(DISTINCT b.id) as num_bills
+                    FROM bill_items bi
+                    JOIN bills b ON bi.bill_id = b.id
+                    LEFT JOIN products p ON bi.product_id = p.id
+                    WHERE b.status = 'Completed' AND DATE(b.bill_date) BETWEEN ? AND ?
+                    GROUP BY bi.product_name, p.batch
+                    ORDER BY total_quantity_sold DESC
+                `;
+                reportData = await query(queryStr, [fromDate, toDate]);
+                break;
             case 'hsn_sale':
                 queryStr = `
                     SELECT
@@ -673,7 +827,7 @@ app.get('/api/reports', async (req, res) => {
                         bills b ON bi.bill_id = b.id
                     LEFT JOIN
                         products p ON bi.product_id = p.id
-                    WHERE
+                    WHERE b.status = 'Completed' AND
                         DATE(b.bill_date) BETWEEN ? AND ?
                     GROUP BY
                         p.hsn, p.packaging, bi.cgst, bi.sgst
@@ -699,3 +853,4 @@ app.listen(PORT, () => {
     console.log(`API server running on port ${PORT}`);
     console.log(`Open http://localhost:${PORT} in your browser`);
 });
+

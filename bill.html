@@ -158,7 +158,7 @@
             font-weight: 600;
             font-size: 1rem;
         }
-        .form-group input, .form-group select {
+        .form-group input, .form-group select, .form-group textarea {
             width: 100%;
             padding: 0.9rem 1rem;
             border: 2px solid var(--border-color);
@@ -168,7 +168,7 @@
             transition: all 0.3s ease;
             background-color: #fff;
         }
-        .form-group input:focus, .form-group select:focus {
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
             outline: none;
             border-color: var(--accent-color);
             box-shadow: 0 0 0 4px var(--shadow-color);
@@ -348,6 +348,11 @@
         .select-wrapper .dropdown-list div:hover { background-color: #f1f5f9; }
         
         .modal-content[style*="min-width: 90vw"] { max-width: 1400px; }
+        #customerHistory { margin-top: 1.5rem; padding: 1rem; background-color: #f8f9fa; border-radius: 12px; border: 1px solid var(--border-color); }
+        #customerHistory h4 { margin-bottom: 1rem; }
+        #customerHistory table { font-size: 0.9rem; margin-top: 0; }
+        #customerHistory th, #customerHistory td { padding: 0.75rem; }
+
     </style>
 </head>
 <body>
@@ -423,7 +428,8 @@
             </div>
 
             <div id="billing" class="tab-content">
-                <h2>New Bill</h2>
+                <h2>New Bill <button class="btn btn-info" style="float: right;" onclick="showHeldBillsModal()">Recall Held Bill</button></h2>
+                <input type="hidden" id="currentBillId">
                 
                 <div class="form-grid">
                     <div class="form-group">
@@ -431,6 +437,7 @@
                         <div class="select-wrapper">
                             <input type="text" id="patientName" placeholder="Enter patient name" oninput="searchCustomer()" autocomplete="off">
                             <div class="dropdown-list" id="patientNameDropdown"></div>
+                            <input type="hidden" id="customerId">
                         </div>
                     </div>
                     <div class="form-group">
@@ -449,13 +456,14 @@
                         <input type="date" id="saleBillDate">
                     </div>
                 </div>
+                 <div id="customerHistory" style="display: none;"></div>
 
                 <h3>Add Products</h3>
                 <div class="form-grid">
                     <div class="form-group">
                         <label>Select Product *</label>
                         <div class="select-wrapper">
-                            <input type="text" id="billProductSearch" placeholder="Search product..." autocomplete="off" oninput="searchProducts()" onfocus="showProductDropdown()">
+                            <input type="text" id="billProductSearch" placeholder="Search by name or batch..." autocomplete="off" oninput="handleProductSearchInput()">
                             <div class="dropdown-list" id="billProductDropdown"></div>
                             <input type="hidden" id="billProductId">
                         </div>
@@ -541,8 +549,9 @@
                         </div>
                     </div>
 
-                    <div style="margin-top: 2rem; display: flex; gap: 1rem;">
-                        <button class="btn btn-success" onclick="generateBill()">🖨️ Generate Bill</button>
+                    <div style="margin-top: 2rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+                        <button class="btn btn-success" onclick="generateBill('Completed')">🖨️ Generate Bill</button>
+                        <button class="btn btn-warning" onclick="generateBill('Held')">🤚 Hold Bill</button>
                         <button class="btn btn-danger" onclick="clearBill()">🗑️ Clear Bill</button>
                     </div>
                 </div>
@@ -651,7 +660,10 @@
                         <label>Report Type</label>
                         <select id="reportType">
                             <option value="sales">Sales Report</option>
+                            <option value="profitability">Profitability Report</option>
+                            <option value="movement">Product Movement Report</option>
                             <option value="purchases">Purchase Report</option>
+                            <option value="supplier_purchases">Supplier Purchases Report</option>
                             <option value="gst">GST Report</option>
                             <option value="hsn_sale">HSN-wise Sale Report</option>
                             <option value="inventory">Inventory Report</option>
@@ -661,7 +673,7 @@
                      <button class="btn btn-primary" onclick="generateReport()">📊 Generate</button>
                 </div>
 
-                <div id="reportContent" style="margin-top: 3rem;"></div>
+                <div id="reportContent" style="margin-top: 3rem; overflow-x: auto;"></div>
             </div>
 
             <div id="settings" class="tab-content">
@@ -743,12 +755,49 @@
             </div>
         </div>
     </div>
+    
+     <div id="stockAdjustmentModal" class="modal no-print">
+        <div class="modal-content" style="max-width: 500px;">
+            <h2>Adjust Stock</h2>
+            <input type="hidden" id="adjustmentProductId">
+            <p><strong>Product:</strong> <span id="adjustmentProductName"></span></p>
+            <div class="form-grid" style="grid-template-columns: 1fr;">
+                <div class="form-group">
+                    <label for="adjustmentQuantity">Quantity to Remove *</label>
+                    <input type="number" id="adjustmentQuantity" min="0.01" step="0.01">
+                </div>
+                <div class="form-group">
+                    <label for="adjustmentReason">Reason *</label>
+                    <select id="adjustmentReason">
+                        <option value="Expired">Expired</option>
+                        <option value="Damaged">Damaged</option>
+                        <option value="Returned">Returned to Supplier</option>
+                        <option value="Manual Adjustment">Manual Adjustment</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="adjustmentNotes">Notes</label>
+                    <textarea id="adjustmentNotes" rows="3"></textarea>
+                </div>
+            </div>
+            <div style="margin-top: 2rem; display: flex; gap: 1rem;">
+                <button class="btn btn-success" onclick="submitStockAdjustment()">Confirm Adjustment</button>
+                <button class="btn btn-danger" onclick="closeModal('stockAdjustmentModal')">Cancel</button>
+            </div>
+        </div>
+    </div>
 
     <div id="addPurchaseModal" class="modal no-print">
         <div class="modal-content" style="min-width: 90vw;">
             <h2>Add New Purchase Bill</h2>
             <div class="form-grid">
-                <div class="form-group"> <label>Supplier Name *</label> <input type="text" id="purchaseSupplierName"> </div>
+                <div class="form-group"> 
+                    <label>Supplier Name *</label> 
+                    <div class="select-wrapper">
+                         <input type="text" id="purchaseSupplierName" oninput="searchSuppliers()" autocomplete="off">
+                         <div class="dropdown-list" id="supplierDropdown"></div>
+                    </div>
+                </div>
                 <div class="form-group"> <label>Purchase Bill No *</label> <input type="text" id="purchaseBillNumber"> </div>
                 <div class="form-group"> <label>Bill Date *</label> <input type="date" id="purchaseBillDate"> </div>
             </div>
@@ -807,6 +856,19 @@
     <div id="viewPurchaseModal" class="modal no-print">
         <div class="modal-content"><h2 >Purchase Bill Details</h2><div id="viewPurchaseContent"></div><div style="margin-top: 2rem;"><button class="btn btn-danger" onclick="closeModal('viewPurchaseModal')">Close</button></div></div>
     </div>
+    
+    <div id="heldBillsModal" class="modal no-print">
+        <div class="modal-content">
+            <h2>Held Bills</h2>
+            <table id="heldBillsTable">
+                <thead><tr><th>Bill Date</th><th>Patient Name</th><th>Items</th><th>Amount</th><th>Action</th></tr></thead>
+                <tbody id="heldBillsBody"></tbody>
+            </table>
+             <div style="margin-top: 2rem; text-align: right;">
+                <button class="btn btn-danger" onclick="closeModal('heldBillsModal')">Close</button>
+            </div>
+        </div>
+    </div>
 
     <div id="invoiceModal" class="modal">
         <div class="modal-content" style="min-width: 800px;">
@@ -839,9 +901,11 @@
     </div>
     
     <script>
-        // JAVASCRIPT LOGIC IS UNCHANGED
+        // JAVASCRIPT LOGIC
         window.addEventListener('beforeunload', function() { navigator.sendBeacon('/api/logout-beacon', new Blob()); });
         let inventory = []; let billItems = []; let purchaseBillItems = []; let transactions = []; let settings = {};
+        let productSearchTimeout; // UPDATED: Added for debouncing product search
+
         const packagingTypes = ["", "STRIP", "BOTTLE", "PACK", "JAR", "TABLET", "CAPSULES", "BOX", "TUBE", "PIECE", "VIAL", "INJ", "SACHET", "SPRAY BOTTLE", "CAN", "UNIT", "AMPUL", "DROP", "PACKET", "POUCH", "INSURANCE", "RESPULE", "AMPOULE", "GLOVES", "INSULIN", "VIAL & SMALL BOTTLE", "SYRINGE", "TIN", "CONTAINER", "SUPPOSITRIES", "ML", "INJECTION" ];
         const API_BASE_URL = '/api';
         document.addEventListener('DOMContentLoaded', async function() { populatePackagingDropdowns(); await fetchSettings(); await fetchInventory(); await fetchDashboardData(); setTodayDate(); await setSaleBillDate(); });
@@ -891,7 +955,7 @@
                 if (product.expiry) { const expiryDate = new Date(`${product.expiry}-01`); if (expiryDate < today) rowClass = 'expired-item'; }
                 if (product.quantity <= (settings.lowStockThreshold || 10)) { rowClass += ' low-stock'; }
                 row.className = rowClass.trim();
-                row.innerHTML = `<td>${product.name || 'N/A'}</td> <td>${product.packaging || 'N/A'}</td> <td>${product.hsn || 'N/A'}</td> <td>${product.batch || 'N/A'}</td> <td>${parseFloat(product.quantity || 0).toFixed(2)}</td> <td>₹${parseFloat(product.mrp || 0).toFixed(2)}</td> <td>₹${parseFloat(product.purchase_rate || 0).toFixed(2)}</td> <td>₹${parseFloat(product.sale_rate_inclusive || 0).toFixed(2)}</td> <td>${product.expiry || 'N/A'}</td> <td><button class="btn btn-warning btn-sm" style="margin-right: 5px;" onclick="editProduct(${product.id})">✏️</button> <button class="btn btn-danger btn-sm" onclick="deleteProduct(${product.id})">❌</button></td>`;
+                row.innerHTML = `<td>${product.name || 'N/A'}</td> <td>${product.packaging || 'N/A'}</td> <td>${product.hsn || 'N/A'}</td> <td>${product.batch || 'N/A'}</td> <td>${parseFloat(product.quantity || 0).toFixed(2)}</td> <td>₹${parseFloat(product.mrp || 0).toFixed(2)}</td> <td>₹${parseFloat(product.purchase_rate || 0).toFixed(2)}</td> <td>₹${parseFloat(product.sale_rate_inclusive || 0).toFixed(2)}</td> <td>${product.expiry || 'N/A'}</td> <td><button class="btn btn-warning btn-sm" onclick='showStockAdjustmentModal(${JSON.stringify(product)})'>+/-</button> <button class="btn btn-info btn-sm" style="margin: 0 5px;" onclick="editProduct(${product.id})">✏️</button> <button class="btn btn-danger btn-sm" onclick="deleteProduct(${product.id})">❌</button></td>`;
                 tableBody.appendChild(row);
             });
         }
@@ -912,12 +976,51 @@
             } catch (error) { showAlert('Failed to fetch product details for editing.', 'danger'); console.error('Edit Product Error:', error); }
         }
         async function checkLowStock() { const lowStock = inventory.filter(p => p.quantity <= (settings.lowStockThreshold || 10)); updateInventoryTable(lowStock); showAlert(`Showing ${lowStock.length} products with low stock (<= ${settings.lowStockThreshold}). Click 'Show All' to clear filter.`, 'warning'); }
-        async function searchProducts() {
-            const query = document.getElementById('billProductSearch').value.toLowerCase().trim(); const dropdown = document.getElementById('billProductDropdown'); dropdown.innerHTML = ''; if (query.length < 1) { dropdown.style.display = 'none'; return; }
-            const filteredProducts = inventory.filter(p => p.quantity > 0 && ( p.name.toLowerCase().includes(query) || p.batch.toLowerCase().includes(query) ) ).slice(0, 50);
-            if (filteredProducts.length > 0) { filteredProducts.forEach(product => { const item = document.createElement('div'); item.textContent = `${product.name} - Batch: ${product.batch} (Qty: ${product.quantity})`; item.onclick = () => selectProduct(product); dropdown.appendChild(item); }); dropdown.style.display = 'block'; } else { dropdown.innerHTML = '<div>No products found</div>'; dropdown.style.display = 'block'; }
+        
+        // --- UPDATED REAL-TIME SEARCH LOGIC ---
+        function handleProductSearchInput() {
+            clearTimeout(productSearchTimeout); // Clear previous timer
+            // Set a new timer to execute search after 300ms of no typing
+            productSearchTimeout = setTimeout(() => {
+                searchProductsRealtime();
+            }, 300);
         }
-        function showProductDropdown() { document.getElementById('billProductDropdown').style.display = 'block'; }
+
+        async function searchProductsRealtime() {
+            const query = document.getElementById('billProductSearch').value.trim();
+            const dropdown = document.getElementById('billProductDropdown');
+            dropdown.innerHTML = '';
+            if (query.length < 2) {
+                dropdown.style.display = 'none';
+                return;
+            }
+
+            try {
+                dropdown.innerHTML = '<div>Searching...</div>';
+                dropdown.style.display = 'block';
+                const response = await fetch(`${API_BASE_URL}/products/search?query=${encodeURIComponent(query)}`);
+                if (!response.ok) throw new Error('Search request failed');
+                const products = await response.json();
+                
+                dropdown.innerHTML = ''; // Clear "Searching..." message
+                if (products.length > 0) {
+                    products.forEach(product => {
+                        const item = document.createElement('div');
+                        item.textContent = `${product.name} - ${product.batch} (Qty: ${product.quantity})`;
+                        item.onclick = () => selectProduct(product);
+                        dropdown.appendChild(item);
+                    });
+                } else {
+                    dropdown.innerHTML = '<div>No products found</div>';
+                }
+                dropdown.style.display = 'block';
+            } catch (error) {
+                console.error("Product search error:", error);
+                dropdown.innerHTML = '<div>Error searching</div>';
+                dropdown.style.display = 'block';
+            }
+        }
+        
         document.addEventListener('click', (event) => { if (!event.target.closest('.select-wrapper')) { document.getElementById('billProductDropdown').style.display = 'none'; document.getElementById('patientNameDropdown').style.display = 'none'; document.getElementById('patientMobileDropdown').style.display = 'none'; } });
         function selectProduct(product) { document.getElementById('billProductSearch').value = `${product.name} - ${product.batch}`; document.getElementById('billProductId').value = product.id; document.getElementById('billBatch').value = product.batch; document.getElementById('billExpiry').value = product.expiry; document.getElementById('availableQty').value = product.quantity; document.getElementById('billMRP').value = Number(product.mrp).toFixed(2); document.getElementById('billRate').value = Number(product.sale_rate).toFixed(2); document.getElementById('billProductDropdown').style.display = 'none'; document.getElementById('billQty').max = product.quantity; document.getElementById('billQty').focus(); }
         function addToBill() {
@@ -949,14 +1052,50 @@
             let roundingRow = document.getElementById('roundingRow'); if (!roundingRow) { roundingRow = document.createElement('div'); roundingRow.className = 'total-row'; roundingRow.id = 'roundingRow'; const gtRow = document.getElementById('grandTotal').parentNode; gtRow.parentNode.insertBefore(roundingRow, gtRow); }
             roundingRow.innerHTML = `<span>Rounding:</span><span>₹${rounding.toFixed(2)}</span>`; document.getElementById('grandTotal').textContent = `₹${rounded.toFixed(2)}`;
         }
-        async function generateBill() {
-            if (!document.getElementById('patientName').value || !document.getElementById('patientMobile').value || billItems.length === 0) { showAlert('Patient details and at least one item are required.', 'danger'); return; }
-            const bill = { patientName: document.getElementById('patientName').value, patientMobile: document.getElementById('patientMobile').value, doctorName: document.getElementById('doctorName').value, items: billItems.map(item => ({ ...item, product_id: item.id })), billDate: document.getElementById('saleBillDate').value, overallDiscountPercent: document.getElementById('overallDiscountPercent').value, };
+        
+        async function generateBill(status) {
+            const currentBillId = document.getElementById('currentBillId').value;
+            const isUpdating = !!currentBillId;
+            const url = isUpdating ? `${API_BASE_URL}/bills/${currentBillId}` : `${API_BASE_URL}/bills`;
+            const method = isUpdating ? 'PUT' : 'POST';
+
+            if (!document.getElementById('patientName').value || !document.getElementById('patientMobile').value || billItems.length === 0) {
+                showAlert('Patient details and at least one item are required.', 'danger');
+                return;
+            }
+
+            const bill = {
+                patient_name: document.getElementById('patientName').value,
+                patient_mobile: document.getElementById('patientMobile').value,
+                doctor_name: document.getElementById('doctorName').value,
+                items: billItems,
+                bill_date: document.getElementById('saleBillDate').value,
+                overall_discount_percent: document.getElementById('overallDiscountPercent').value,
+                status: status
+            };
+            if(isUpdating) bill.id = currentBillId;
+
             try {
-                const response = await fetch(`${API_BASE_URL}/bills`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bill) }); const result = await response.json();
-                if (response.ok) { showAlert('Bill generated successfully!', 'success'); bill.items.forEach(billedItem => { const inventoryItem = inventory.find(invItem => invItem.id === billedItem.product_id); if (inventoryItem) { inventoryItem.quantity -= billedItem.quantity; } }); const savedBill = await fetch(`${API_BASE_URL}/bills/${result.id}`).then(res => res.json()); displayInvoice(savedBill); await fetchInventory(); await fetchDashboardData(); clearBill(); } else { showAlert(result.error, 'danger'); }
-            } catch (error) { showAlert('Failed to generate bill.', 'danger'); }
+                const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(bill) });
+                const result = await response.json();
+                
+                if (response.ok) {
+                    showAlert(result.message, 'success');
+                    if (status === 'Completed') {
+                        const savedBill = await fetch(`${API_BASE_URL}/bills/${result.id}`).then(res => res.json());
+                        displayInvoice(savedBill);
+                    }
+                    await fetchInventory();
+                    await fetchDashboardData();
+                    clearBill();
+                } else {
+                    showAlert(result.error, 'danger');
+                }
+            } catch (error) {
+                showAlert(`Failed to ${isUpdating ? 'update' : 'generate'} bill.`, 'danger');
+            }
         }
+        
         function displayInvoice(bill) {
             const itemsHtml = bill.items.map(item => { const taxable = (item.rate * item.quantity) * (1 - (item.discount / 100)); const gst = taxable * ((Number(item.cgst) + Number(item.sgst)) / 100); return `<tr> <td>${item.product_name}</td> <td>${item.batch}</td> <td>${item.expiry}</td> <td>₹${Number(item.mrp).toFixed(2)}</td> <td>${parseFloat(item.quantity).toFixed(2)}</td> <td>₹${Number(item.rate).toFixed(2)}</td> <td>${item.discount}%</td> <td>${(Number(item.cgst) + Number(item.sgst))}%</td> <td>₹${(taxable + gst).toFixed(2)}</td> </tr>`; }).join('');
             const rounded = Math.round(Number(bill.grand_total)); const rounding = rounded - Number(bill.grand_total);
@@ -965,7 +1104,7 @@
             document.getElementById('invoiceModal').classList.add('active');
         }
         function printInvoice() { const printWindow = window.open('', '', 'height=600,width=800'); printWindow.document.write('<html><head><title>Invoice</title>'); printWindow.document.write('<style> body { font-family: sans-serif; } table { width: 100%; border-collapse: collapse; } th, td { padding: 8px; border: 1px solid #ddd; } .total-section { margin-top: 20px; } .total-row { display: flex; justify-content: space-between; padding: 5px 0; } </style>'); printWindow.document.write('</head><body>'); printWindow.document.write(document.getElementById('invoiceContent').innerHTML); printWindow.document.write('</body></html>'); printWindow.document.close(); setTimeout(() => { printWindow.print(); printWindow.close(); }, 250); }
-        function clearBill() { billItems = []; document.getElementById('patientName').value = ''; document.getElementById('patientMobile').value = ''; document.getElementById('doctorName').value = ''; document.getElementById('overallDiscountPercent').value = 0; clearProductInputs(); updateBillTable(); calculateTotals(); setSaleBillDate(); }
+        function clearBill() { billItems = []; document.getElementById('patientName').value = ''; document.getElementById('patientMobile').value = ''; document.getElementById('doctorName').value = ''; document.getElementById('overallDiscountPercent').value = 0; document.getElementById('currentBillId').value = ''; document.getElementById('customerId').value = ''; document.getElementById('customerHistory').style.display = 'none'; clearProductInputs(); updateBillTable(); calculateTotals(); setSaleBillDate(); }
         async function fetchDashboardData() { try { const response = await fetch(`${API_BASE_URL}/dashboard-stats`); if (!response.ok) { throw new Error('Failed to fetch dashboard stats'); } const data = await response.json(); document.getElementById('todaySales').textContent = `₹${Number(data.todaySales).toFixed(2)}`; document.getElementById('todayBillsCount').textContent = data.todayBillsCount; document.getElementById('totalItems').textContent = data.totalItems; document.getElementById('lowStockCount').textContent = data.lowStockCount; document.getElementById('expiringCount').textContent = data.expiringCount; updateRecentTransactions(data.recentTransactions); } catch (error) { console.error('Error fetching dashboard data:', error); showAlert('Failed to load dashboard data.', 'danger'); } }
         function updateRecentTransactions(bills) {
             const body = document.getElementById('recentTransactionsBody'); body.innerHTML = ''; if (!bills || bills.length === 0) { body.innerHTML = '<tr><td colspan="5" style="text-align: center;">No recent transactions</td></tr>'; return; }
@@ -976,10 +1115,21 @@
             if(!fromDate || !toDate) { showAlert('Please select a valid date range.', 'danger'); contentDiv.innerHTML = ''; return; }
             try {
                 const response = await fetch(`${API_BASE_URL}/reports?type=${type}&fromDate=${fromDate}&toDate=${toDate}`); if (!response.ok) throw new Error(await response.json().then(e => e.error)); const data = await response.json();
-                let html = `<h3>${type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} Report from ${fromDate} to ${toDate}</h3>`;
-                if (data.length === 0) { html += `<p>No data found for this period.</p>`; } else { const headers = Object.keys(data[0]); html += `<table class="report-table"><thead><tr>${headers.map(h => `<th>${h.replace(/_/g, ' ').toUpperCase()}</th>`).join('')}</tr></thead><tbody>`; data.forEach(row => { html += `<tr>${headers.map(h => { const val = row[h]; let displayVal = val === null || val === undefined ? '' : val; const isCurrency = typeof val === 'number' && (h.includes('rate') || h.includes('amount') || h.includes('total') || h.includes('mrp') || h.includes('gst') || h.includes('subtotal') || h.includes('value')); if(isCurrency) { displayVal = '₹' + parseFloat(val).toFixed(2); } else if (h.includes('date')) { displayVal = formatDateForDisplay(val); } return `<td>${displayVal}</td>`; }).join('')}</tr>`; }); html += `</tbody></table>`; }
+                let html = `<h3>${type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} Report from ${fromDate} to ${toDate}</h3> <button class="btn btn-sm btn-info no-print" onclick="printReport()">Print Report</button>`;
+                if (data.length === 0) { html += `<p>No data found for this period.</p>`; } else { const headers = Object.keys(data[0]); html += `<table class="report-table"><thead><tr>${headers.map(h => `<th>${h.replace(/_/g, ' ').toUpperCase()}</th>`).join('')}</tr></thead><tbody>`; data.forEach(row => { html += `<tr>${headers.map(h => { const val = row[h]; let displayVal = val === null || val === undefined ? '' : val; const isCurrency = typeof val === 'number' && (h.includes('rate') || h.includes('amount') || h.includes('total') || h.includes('mrp') || h.includes('gst') || h.includes('subtotal') || h.toLowerCase().includes('profit') || h.includes('value')); if(isCurrency) { displayVal = '₹' + parseFloat(val).toFixed(2); } else if (h.includes('date')) { displayVal = formatDateForDisplay(val); } return `<td>${displayVal}</td>`; }).join('')}</tr>`; }); html += `</tbody></table>`; }
                 contentDiv.innerHTML = html;
             } catch(error) { showAlert(`Error generating report: ${error.message}`, 'danger'); contentDiv.innerHTML = `<p style="color:red;">Could not generate report.</p>`; }
+        }
+        function printReport() {
+            const reportContent = document.getElementById('reportContent').innerHTML;
+            const printWindow = window.open('', '', 'height=800,width=1200');
+            printWindow.document.write('<html><head><title>Report</title>');
+            printWindow.document.write('<style> body { font-family: sans-serif; } table { width: 100%; border-collapse: collapse; } th, td { padding: 8px; border: 1px solid #ddd; text-align: left;} th { background-color: #f2f2f2; } .no-print { display: none; } </style>');
+            printWindow.document.write('</head><body>');
+            printWindow.document.write(reportContent);
+            printWindow.document.write('</body></html>');
+            printWindow.document.close();
+            setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
         }
         async function fetchBills() { try { const bills = await fetch(`${API_BASE_URL}/bills`).then(res => res.json()); updateBillsTable(bills); } catch (error) { showAlert(error.message, 'danger'); } }
         function updateBillsTable(bills) {
@@ -1072,12 +1222,155 @@
             const nameInput = document.getElementById('patientName'); const mobileInput = document.getElementById('patientMobile'); const nameDropdown = document.getElementById('patientNameDropdown'); const mobileDropdown = document.getElementById('patientMobileDropdown');
             let query = ''; let activeDropdown;
             if (document.activeElement === mobileInput) { nameDropdown.style.display = 'none'; nameDropdown.innerHTML = ''; } else { mobileDropdown.style.display = 'none'; mobileDropdown.innerHTML = ''; }
-            if (document.activeElement === mobileInput) { query = mobileInput.value.trim(); activeDropdown = mobileDropdown; } else if (document.activeElement === nameInput) { query = nameInput.value.trim(); activeDropdown = nameDropdown; } else { nameDropdown.style.display = 'none'; mobileDropdown.style.display = 'none'; return; }
+            if (document.activeElement === mobileInput) { query = mobileInput.value.trim(); activeDropdown = mobileDropdown; } else if (document.activeElement === nameInput) { query = nameInput.value.trim(); activeDropdown = nameInput.nextElementSibling; } else { nameDropdown.style.display = 'none'; mobileDropdown.style.display = 'none'; return; }
             activeDropdown.innerHTML = ''; if (query.length < 2) { activeDropdown.style.display = 'none'; return; }
             try { const response = await fetch(`${API_BASE_URL}/customers/search?query=${encodeURIComponent(query)}`); const customers = await response.json(); if (customers.length > 0) { customers.forEach(customer => { const item = document.createElement('div'); item.textContent = `${customer.name} - ${customer.mobile}`; item.onclick = () => selectCustomer(customer); activeDropdown.appendChild(item); }); activeDropdown.style.display = 'block'; } else { activeDropdown.style.display = 'none'; } } catch (error) { console.error('Error searching customers:', error); }
         }
-        function selectCustomer(customer) { document.getElementById('patientName').value = customer.name; document.getElementById('patientMobile').value = customer.mobile; document.getElementById('doctorName').value = customer.doctor_name || ''; document.getElementById('patientNameDropdown').style.display = 'none'; document.getElementById('patientMobileDropdown').style.display = 'none'; }
+        async function selectCustomer(customer) { 
+            document.getElementById('patientName').value = customer.name; 
+            document.getElementById('patientMobile').value = customer.mobile; 
+            document.getElementById('doctorName').value = customer.doctor_name || ''; 
+            document.getElementById('customerId').value = customer.id;
+            document.getElementById('patientNameDropdown').style.display = 'none'; 
+            document.getElementById('patientMobileDropdown').style.display = 'none'; 
+            
+            // Fetch and display purchase history
+            const historyDiv = document.getElementById('customerHistory');
+            try {
+                const response = await fetch(`${API_BASE_URL}/customers/${customer.id}/history`);
+                const history = await response.json();
+                if (history.length > 0) {
+                    let html = '<h4>Recent Purchases</h4><table><thead><tr><th>Date</th><th>Product</th><th>Qty</th></tr></thead><tbody>';
+                    history.forEach(item => {
+                        html += `<tr><td>${item.bill_date}</td><td>${item.product_name}</td><td>${item.quantity}</td></tr>`;
+                    });
+                    html += '</tbody></table>';
+                    historyDiv.innerHTML = html;
+                    historyDiv.style.display = 'block';
+                } else {
+                    historyDiv.innerHTML = '<h4>No recent purchase history.</h4>';
+                    historyDiv.style.display = 'block';
+                }
+            } catch(e) {
+                historyDiv.innerHTML = '<h4>Could not load purchase history.</h4>';
+                historyDiv.style.display = 'block';
+            }
+        }
+
+        async function showHeldBillsModal() {
+            try {
+                const response = await fetch(`${API_BASE_URL}/held-bills`);
+                const bills = await response.json();
+                const tableBody = document.getElementById('heldBillsBody');
+                tableBody.innerHTML = '';
+                if(bills.length > 0) {
+                    bills.forEach(bill => {
+                        const row = `<tr>
+                            <td>${formatDateForDisplay(bill.bill_date)}</td>
+                            <td>${bill.patient_name}</td>
+                            <td>${bill.item_count || 'N/A'}</td>
+                            <td>₹${parseFloat(bill.grand_total).toFixed(2)}</td>
+                            <td><button class="btn btn-success btn-sm" onclick="recallBill(${bill.id})">Recall</button></td>
+                        </tr>`;
+                        tableBody.innerHTML += row;
+                    });
+                } else {
+                    tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No bills are currently on hold.</td></tr>';
+                }
+                document.getElementById('heldBillsModal').classList.add('active');
+            } catch (error) {
+                showAlert('Could not fetch held bills.', 'danger');
+            }
+        }
+        async function recallBill(billId) {
+            try {
+                const response = await fetch(`${API_BASE_URL}/bills/${billId}`);
+                const bill = await response.json();
+                clearBill(); // Clear current form before loading
+                
+                document.getElementById('currentBillId').value = bill.id;
+                document.getElementById('patientName').value = bill.patient_name;
+                document.getElementById('patientMobile').value = bill.patient_mobile;
+                document.getElementById('doctorName').value = bill.doctor_name;
+                document.getElementById('saleBillDate').value = bill.bill_date.split('T')[0];
+                document.getElementById('overallDiscountPercent').value = bill.overall_discount_percent;
+
+                billItems = bill.items.map(item => ({ ...item, id: item.product_id })); // Map items to billItems format
+
+                updateBillTable();
+                calculateTotals();
+                closeModal('heldBillsModal');
+                showAlert(`Bill for ${bill.patient_name} recalled successfully.`, 'info');
+            } catch (error) {
+                showAlert('Failed to recall the bill.', 'danger');
+            }
+        }
+        async function searchSuppliers() {
+            const query = document.getElementById('purchaseSupplierName').value;
+            const dropdown = document.getElementById('supplierDropdown');
+            dropdown.innerHTML = '';
+            if (query.length < 1) { dropdown.style.display = 'none'; return; }
+            try {
+                const res = await fetch(`${API_BASE_URL}/suppliers?query=${encodeURIComponent(query)}`);
+                const suppliers = await res.json();
+                if(suppliers.length > 0) {
+                    suppliers.forEach(s => {
+                        const item = document.createElement('div');
+                        item.textContent = s.name;
+                        item.onclick = () => {
+                            document.getElementById('purchaseSupplierName').value = s.name;
+                            dropdown.style.display = 'none';
+                        };
+                        dropdown.appendChild(item);
+                    });
+                    dropdown.style.display = 'block';
+                } else {
+                     dropdown.style.display = 'none';
+                }
+            } catch(e) { console.error(e); }
+        }
+        
+        function showStockAdjustmentModal(product) {
+            document.getElementById('adjustmentProductId').value = product.id;
+            document.getElementById('adjustmentProductName').textContent = `${product.name} (Batch: ${product.batch})`;
+            document.getElementById('adjustmentQuantity').value = '';
+            document.getElementById('adjustmentQuantity').max = product.quantity;
+            document.getElementById('adjustmentReason').value = 'Expired';
+            document.getElementById('adjustmentNotes').value = '';
+            document.getElementById('stockAdjustmentModal').classList.add('active');
+        }
+
+        async function submitStockAdjustment() {
+            const payload = {
+                productId: document.getElementById('adjustmentProductId').value,
+                quantity: document.getElementById('adjustmentQuantity').value,
+                reason: document.getElementById('adjustmentReason').value,
+                notes: document.getElementById('adjustmentNotes').value,
+            };
+            
+            if (!payload.productId || !payload.quantity || parseFloat(payload.quantity) <= 0) {
+                showAlert('Please enter a valid quantity to remove.', 'danger');
+                return;
+            }
+
+            try {
+                const response = await fetch(`${API_BASE_URL}/stock-adjustments`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const result = await response.json();
+                if (response.ok) {
+                    showAlert(result.message, 'success');
+                    closeModal('stockAdjustmentModal');
+                    fetchInventory(); // Refresh inventory list
+                } else {
+                    showAlert(result.error, 'danger');
+                }
+            } catch (error) {
+                showAlert('An error occurred while adjusting stock.', 'danger');
+            }
+        }
     </script>
 </body>
 </html>
-
