@@ -173,26 +173,6 @@ app.get('/api/products/:id', async (req, res) => {
     }
 });
 
-// Real-time search endpoint for billing
-app.get('/api/products/search', async (req, res) => {
-    try {
-        const q = (req.query.query || '').trim();
-        if (!q) {
-            return res.json([]);
-        }
-        const like = `%${q}%`;
-        // This query robustly searches by name or batch, which is ideal for a pharmacy system.
-        const rows = await query(
-            `SELECT * FROM products WHERE (name LIKE ? OR batch LIKE ?) AND quantity > 0 ORDER BY name ASC LIMIT 50`,
-            [like, like]
-        );
-        res.json(rows);
-    } catch (err) {
-        console.error('GET /api/products/search error:', err);
-        res.status(500).json({ error: 'Search failed' });
-    }
-});
-
 app.post('/api/products', async (req, res) => {
     try {
         const { name, hsn, batch, quantity, packaging, mrp, saleRate, saleRateInclusive, expiry, cgst, sgst, purchase_rate } = req.body;
@@ -292,21 +272,6 @@ app.get('/api/customers', async (req, res) => {
     }
 });
 
-app.get('/api/customers/search', async (req, res) => {
-    try {
-        const q = (req.query.query || '').trim();
-        const like = `%${q}%`;
-        const rows = await query(
-            `SELECT * FROM customers WHERE name LIKE ? OR mobile LIKE ? ORDER BY name ASC LIMIT 50`,
-            [like, like]
-        );
-        res.json(rows);
-    } catch (err) {
-        console.error('GET /api/customers/search error:', err);
-        res.status(500).json({ error: 'Search failed' });
-    }
-});
-
 // Get customer purchase history
 app.get('/api/customers/:id/history', async (req, res) => {
     try {
@@ -389,13 +354,7 @@ app.delete('/api/customers/:id', async (req, res) => {
 // ---------- SUPPLIERS ----------
 app.get('/api/suppliers', async (req, res) => {
     try {
-        const q = req.query.query || '';
-        const like = `%${q}%`;
-        const sql = q 
-            ? 'SELECT * FROM suppliers WHERE name LIKE ? ORDER BY name ASC'
-            : 'SELECT * FROM suppliers ORDER BY name ASC';
-        const params = q ? [like] : [];
-        const rows = await query(sql, params);
+        const rows = await query('SELECT * FROM suppliers ORDER BY name ASC');
         res.json(rows);
     } catch (err) {
         res.status(500).json({ error: 'Failed to fetch suppliers' });
@@ -472,23 +431,24 @@ app.get('/api/bills/:id', async (req, res) => {
 app.post('/api/bills', async (req, res) => {
     const conn = await pool.getConnection();
     try {
-        const { patientName, patientMobile, doctorName, items, billDate, overallDiscountPercent, status = 'Completed' } = req.body;
+        // UPDATED: Changed to snake_case to match frontend
+        const { patient_name, patient_mobile, doctor_name, items, bill_date, overall_discount_percent, status = 'Completed' } = req.body;
         
         let customerId = null;
-        if (patientMobile) {
-            const [existing] = await conn.query('SELECT id FROM customers WHERE mobile = ? LIMIT 1', [patientMobile]);
+        if (patient_mobile) {
+            const [existing] = await conn.query('SELECT id FROM customers WHERE mobile = ? LIMIT 1', [patient_mobile]);
             if (existing.length > 0) {
                 customerId = existing[0].id;
                 // Optionally update customer name if it has changed
-                await conn.query('UPDATE customers SET name = ?, doctor_name = ? WHERE id = ?', [patientName, doctorName, customerId]);
+                await conn.query('UPDATE customers SET name = ?, doctor_name = ? WHERE id = ?', [patient_name, doctor_name, customerId]);
             } else {
-                const [newCustomer] = await conn.query('INSERT INTO customers (name, mobile, doctor_name) VALUES (?, ?, ?)', [patientName, patientMobile, doctorName]);
+                const [newCustomer] = await conn.query('INSERT INTO customers (name, mobile, doctor_name) VALUES (?, ?, ?)', [patient_name, patient_mobile, doctor_name]);
                 customerId = newCustomer.insertId;
             }
         }
         
         let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0;
-        const overallDiscount = Number(overallDiscountPercent) || 0;
+        const overallDiscount = Number(overall_discount_percent) || 0;
         for (const it of items) {
             const itemSubtotal = (Number(it.rate) || 0) * (Number(it.quantity) || 0);
             const itemDiscountAmount = itemSubtotal * ((Number(it.discount) || 0) / 100);
@@ -505,7 +465,7 @@ app.post('/api/bills', async (req, res) => {
 
         const [billInsert] = await conn.query(
             `INSERT INTO bills (bill_number, patient_name, patient_mobile, doctor_name, subtotal, total_discount, total_cgst, total_sgst, grand_total, customer_id, bill_date, overall_discount_percent, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            ['TEMP', patientName, patientMobile, doctorName, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, billDate || new Date(), overallDiscount, status]
+            ['TEMP', patient_name, patient_mobile, doctor_name, subtotal, totalDiscount, totalCGST, totalSGST, grandTotal, customerId, bill_date || new Date(), overallDiscount, status]
         );
         const billId = billInsert.insertId;
         const year = new Date().getFullYear();
@@ -597,7 +557,7 @@ app.put('/api/bills/:id', async (req, res) => {
         );
         await conn.commit();
         conn.release();
-        res.json({ message: 'Bill updated' });
+        res.json({ message: 'Bill updated', id: billId });
     } catch (err) {
         await conn.rollback().catch(()=>{});
         conn.release();
@@ -605,6 +565,21 @@ app.put('/api/bills/:id', async (req, res) => {
         res.status(500).json({ error: 'Failed to update bill' });
     }
 });
+
+// ADDED: New endpoint to delete bills
+app.delete('/api/bills/:id', async (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        // We only expect to delete 'Held' bills this way. 
+        // Completed bills should probably be cancelled/returned, not deleted.
+        await query("DELETE FROM bills WHERE id = ? AND status = 'Held'", [id]);
+        res.json({ message: 'Held bill deleted' });
+    } catch (err) {
+        console.error('DELETE /api/bills/:id', err);
+        res.status(500).json({ error: 'Failed to delete held bill' });
+    }
+});
+
 
 // ---------- PURCHASES ----------
 app.get('/api/purchases', async (req, res) => {
