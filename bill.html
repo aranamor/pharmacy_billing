@@ -234,7 +234,6 @@
         tbody tr:hover { background-color: #f8fafc; }
         td input { padding: 0.5rem; font-size: 1rem; border-radius: 8px; border: 1px solid var(--border-color); }
         
-        /* ADDED: For responsive tables */
         .table-responsive-wrapper {
             overflow-x: auto;
             width: 100%;
@@ -354,7 +353,16 @@
         .select-wrapper .dropdown-list div:hover { background-color: #f1f5f9; }
         
         .modal-content[style*="min-width: 90vw"] { max-width: 1400px; }
-        #customerHistory { margin-top: 1.5rem; padding: 1rem; background-color: #f8f9fa; border-radius: 12px; border: 1px solid var(--border-color); }
+        
+        #customerHistory {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background-color: #f8f9fa;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            max-height: 250px;
+            overflow-y: auto;
+        }
         #customerHistory h4 { margin-bottom: 1rem; }
         #customerHistory table { font-size: 0.9rem; margin-top: 0; }
         #customerHistory th, #customerHistory td { padding: 0.75rem; }
@@ -1007,7 +1015,6 @@
         }
         async function checkLowStock() { const lowStock = inventory.filter(p => p.quantity <= (settings.lowStockThreshold || 10)); updateInventoryTable(lowStock); showAlert(`Showing ${lowStock.length} products with low stock (<= ${settings.lowStockThreshold}). Click 'Show All' to clear filter.`, 'warning'); }
         
-        // --- NEW CLIENT-SIDE SEARCH LOGIC ---
         function handleProductSearchInput() {
             const query = document.getElementById('billProductSearch').value.trim().toLowerCase();
             const dropdown = document.getElementById('billProductDropdown');
@@ -1018,7 +1025,6 @@
                 return;
             }
 
-            // Filter the global 'inventory' array which is already loaded
             const filteredProducts = inventory.filter(product =>
                 product.quantity > 0 && 
                 (product.name.toLowerCase().includes(query) || 
@@ -1026,7 +1032,6 @@
             );
 
             if (filteredProducts.length > 0) {
-                // To avoid a huge list, let's limit the results shown at one time
                 filteredProducts.slice(0, 50).forEach(product => {
                     const item = document.createElement('div');
                     item.textContent = `${product.name} - ${product.batch} (Qty: ${product.quantity})`;
@@ -1315,9 +1320,13 @@
                 const response = await fetch(`${API_BASE_URL}/customers/${customer.id}/history`);
                 const history = await response.json();
                 if (history.length > 0) {
-                    let html = '<h4>Recent Purchases</h4><div class="table-responsive-wrapper"><table><thead><tr><th>Date</th><th>Product</th><th>Qty</th></tr></thead><tbody>';
+                    let html = `<h4>Recent Purchases</h4><div class="table-responsive-wrapper"><table><thead><tr><th>Last Purchase Date</th><th>Product</th><th>Action</th></tr></thead><tbody>`;
                     history.forEach(item => {
-                        html += `<tr><td>${item.bill_date}</td><td>${item.product_name}</td><td>${item.quantity}</td></tr>`;
+                        html += `<tr>
+                                    <td>${formatDateForDisplay(item.last_purchase_date)}</td>
+                                    <td>${item.product_name}</td>
+                                    <td><button class="btn btn-success btn-sm" onclick="addProductFromHistory('${item.product_name.replace(/'/g, "\\'")}')">Add</button></td>
+                                 </tr>`;
                     });
                     html += '</tbody></table></div>';
                     historyDiv.innerHTML = html;
@@ -1330,6 +1339,27 @@
                 historyDiv.innerHTML = '<h4>Could not load purchase history.</h4>';
                 historyDiv.style.display = 'block';
             }
+        }
+
+        // UPDATED: Now populates the "Add Product" section instead of adding directly to bill
+        function addProductFromHistory(productName) {
+            const availableBatches = inventory.filter(p => p.name === productName && p.quantity > 0);
+
+            if (availableBatches.length === 0) {
+                showAlert(`'${productName}' is out of stock.`, 'danger');
+                return;
+            }
+
+            // Find the batch with the latest expiry date as the "best" one to add
+            const bestBatch = availableBatches.sort((a, b) => {
+                const dateA = a.expiry ? new Date(a.expiry) : new Date(0);
+                const dateB = b.expiry ? new Date(b.expiry) : new Date(0);
+                return dateB - dateA; // Sort descending by date
+            })[0];
+            
+            // Use the existing selectProduct function to populate the form
+            selectProduct(bestBatch);
+            showAlert(`Selected '${productName}'. Please enter quantity.`, 'info');
         }
 
         async function showHeldBillsModal() {
@@ -1382,28 +1412,42 @@
         async function recallBill(billId) {
             try {
                 const response = await fetch(`${API_BASE_URL}/bills/${billId}`);
+                if (!response.ok) {
+                    throw new Error('Failed to fetch bill data.');
+                }
                 const bill = await response.json();
                 clearBill(); // Clear current form before loading
                 
                 document.getElementById('currentBillId').value = bill.id;
                 document.getElementById('patientName').value = bill.patient_name;
                 document.getElementById('patientMobile').value = bill.patient_mobile;
-                document.getElementById('doctorName').value = bill.doctor_name;
+                document.getElementById('doctorName').value = bill.doctor_name || '';
                 document.getElementById('saleBillDate').value = bill.bill_date.split('T')[0];
                 document.getElementById('overallDiscountPercent').value = bill.overall_discount_percent;
 
-                // UPDATED: Correctly map product_name to name
-                billItems = bill.items.map(item => ({ ...item, id: item.product_id, name: item.product_name }));
+                // BUG FIX: Map 'product_name' to 'name' and 'product_id' to 'id'
+                billItems = bill.items.map(item => ({
+                    ...item,
+                    id: item.product_id,
+                    name: item.product_name 
+                }));
 
                 updateBillTable();
                 calculateTotals();
                 closeModal('heldBillsModal');
                 showAlert(`Bill for ${bill.patient_name} recalled successfully.`, 'info');
-                switchTab('billing');
+                // Force switch to billing tab
+                document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                document.querySelector('.tab[onclick="switchTab(\'billing\')"]').classList.add('active');
+                document.getElementById('billing').classList.add('active');
+
             } catch (error) {
-                showAlert('Failed to recall the bill.', 'danger');
+                console.error("Recall Bill Error:", error);
+                showAlert('Failed to recall the bill. Check console for details.', 'danger');
             }
         }
+
 
         async function fetchAllSuppliers() {
             try {

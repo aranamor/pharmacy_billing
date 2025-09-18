@@ -276,14 +276,17 @@ app.get('/api/customers', async (req, res) => {
 app.get('/api/customers/:id/history', async (req, res) => {
     try {
         const customerId = Number(req.params.id);
+        // UPDATED: Query now gets unique products and their last purchase date.
         const rows = await query(`
-            SELECT b.id, b.bill_number, DATE_FORMAT(b.bill_date, '%Y-%m-%d') as bill_date, b.grand_total, 
-                   bi.product_name, bi.quantity, bi.rate
+            SELECT
+                bi.product_name,
+                MAX(DATE_FORMAT(b.bill_date, '%Y-%m-%d')) as last_purchase_date
             FROM bills b
             JOIN bill_items bi ON b.id = bi.bill_id
             WHERE b.customer_id = ? AND b.status = 'Completed'
-            ORDER BY b.bill_date DESC, b.id DESC
-            LIMIT 20 
+            GROUP BY bi.product_name
+            ORDER BY last_purchase_date DESC
+            LIMIT 20
         `, [customerId]);
         res.json(rows);
     } catch (err) {
