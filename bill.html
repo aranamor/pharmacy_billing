@@ -7,6 +7,8 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <!-- SheetJS for Excel Export -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
     <style>
         :root {
             --primary-gradient: linear-gradient(135deg, #43cea2 0%, #185a9d 100%);
@@ -398,7 +400,6 @@
         </div>
 
         <div class="content">
-             <!-- All other HTML content remains unchanged -->
             <div id="dashboard" class="tab-content active">
                 <h2>Dashboard Overview</h2>
                 <div class="stats-grid">
@@ -476,12 +477,13 @@
 
                 <h3>Add Products</h3>
                 <div class="form-grid">
-                    <div class="form-group">
+                    <div class="form-group" style="grid-column: 1 / 3;">
                         <label>Select Product *</label>
                         <div class="select-wrapper">
                             <input type="text" id="billProductSearch" placeholder="Search by name or batch..." autocomplete="off" oninput="handleProductSearchInput()">
                             <div class="dropdown-list" id="billProductDropdown"></div>
                             <input type="hidden" id="billProductId">
+                             <input type="hidden" id="billProductGst">
                         </div>
                     </div>
                     <div class="form-group">
@@ -500,9 +502,16 @@
                         <label>MRP</label>
                         <input type="number" id="billMRP" readonly>
                     </div>
+                </div>
+                
+                <div class="form-grid" style="grid-template-columns: 1fr 1fr 1fr 1fr;">
+                     <div class="form-group">
+                        <label>Sale Rate (Excl. GST)</label>
+                        <input type="number" id="billRate" step="0.01" oninput="updateSaleRates('exclusive')">
+                    </div>
                     <div class="form-group">
-                        <label>Sale Rate</label>
-                        <input type="number" id="billRate" step="0.01">
+                        <label>Sale Rate (Incl. GST)</label>
+                        <input type="number" id="billRateInclusive" step="0.01" oninput="updateSaleRates('inclusive')">
                     </div>
                     <div class="form-group">
                         <label>Quantity *</label>
@@ -514,6 +523,7 @@
                     </div>
                 </div>
 
+
                 <button class="btn btn-primary" onclick="addToBill()">➕ Add to Bill</button>
 
                 <div class="bill-section">
@@ -524,7 +534,7 @@
                                 <tr>
                                     <th>Product</th>
                                     <th>Batch</th>
-                                    <th>Exp</th>
+                                    <th>HSN</th>
                                     <th>MRP</th>
                                     <th>Rate</th>
                                     <th>Qty</th>
@@ -630,8 +640,8 @@
                                 <th>Bill No</th>
                                 <th>Supplier</th>
                                 <th>Bill Date</th>
-                                <th>Tax Type</th>
                                 <th>Total Amount</th>
+                                <th>Status</th>
                                 <th>Action</th>
                             </tr>
                         </thead>
@@ -687,7 +697,8 @@
                             <option value="movement">Product Movement Report</option>
                             <option value="purchases">Purchase Report</option>
                             <option value="supplier_purchases">Supplier Purchases Report</option>
-                            <option value="gst">GST Report</option>
+                            <option value="sale_gst">Sale GST Report</option>
+                            <option value="purchase_gst">Purchase GST Report</option>
                             <option value="hsn_sale">HSN-wise Sale Report</option>
                             <option value="inventory">Inventory Report</option>
                             <option value="expiry">Expiry Report</option>
@@ -814,7 +825,8 @@
 
     <div id="addPurchaseModal" class="modal no-print">
         <div class="modal-content" style="min-width: 90vw;">
-            <h2>Add New Purchase Bill</h2>
+            <h2 id="purchaseModalTitle">Add New Purchase Bill</h2>
+            <input type="hidden" id="editPurchaseId">
             <div class="form-grid">
                 <div class="form-group"> 
                     <label>Supplier Name *</label> 
@@ -828,8 +840,8 @@
             </div>
             <div style="margin: 1rem 0; display: flex; gap: 1.5rem;">
                 <strong>Tax Type:</strong>
-                <label><input type="radio" name="purchaseTaxType" value="CSGST" checked> CGST/SGST</label>
-                <label><input type="radio" name="purchaseTaxType" value="IGST"> IGST</label>
+                <label><input type="radio" name="purchaseTaxType" value="CSGST" checked onchange="togglePurchaseGstFields()"> CGST/SGST</label>
+                <label><input type="radio" name="purchaseTaxType" value="IGST" onchange="togglePurchaseGstFields()"> IGST</label>
             </div>
             <hr style="margin: 2rem 0;">
             <h3>Add Products to Bill</h3>
@@ -843,7 +855,11 @@
                 <div class="form-group"> <label>Expiry *</label> <input type="month" id="purchaseExpiry"> </div>
                 <div class="form-group"> <label>MRP *</label> <input type="number" id="purchaseMRP" step="0.01"> </div>
                 <div class="form-group"> <label>Purchase Rate *</label> <input type="number" id="purchaseRate" step="0.01"> </div>
-                <div class="form-group"> <label>Purchase GST % *</label> <input type="number" id="purchaseGstPercent" value="12" step="0.01"> </div>
+                
+                <div class="form-group purchase-gst-group" id="purchaseCGSTGroup"> <label>Purchase CGST % *</label> <input type="number" id="purchaseCGST" value="6" step="0.01"> </div>
+                <div class="form-group purchase-gst-group" id="purchaseSGSTGroup"> <label>Purchase SGST % *</label> <input type="number" id="purchaseSGST" value="6" step="0.01"> </div>
+                <div class="form-group purchase-gst-group" id="purchaseIGSTGroup" style="display: none;"> <label>Purchase IGST % *</label> <input type="number" id="purchaseIGST" value="12" step="0.01"> </div>
+
                 <div class="form-group"> <label>Discount %</label> <input type="number" id="purchaseDiscount" value="0" step="0.01"> </div>
                 <div class="form-group"> <label>Sale Rate (Incl. Tax) *</label> <input type="number" id="purchaseSaleRateIncl" step="0.01" oninput="calculatePurchaseSaleExclusiveRate()"> </div>
                  <div class="form-group"> <label>Sale GST % *</label> <input type="number" id="purchaseSaleGstPercent" min="0" value="12" step="0.01" oninput="calculatePurchaseSaleExclusiveRate()"> </div>
@@ -856,7 +872,7 @@
                     <table id="purchaseItemsTable">
                         <thead>
                             <tr>
-                                <th>Product</th> <th>Batch</th> <th>Qty</th> <th>Free</th> <th>Rate</th> <th>Disc %</th> <th>Disc Amt</th>
+                                <th>Product</th> <th>Batch</th> <th>Qty</th> <th>Free</th> <th>Rate</th> <th>Disc %</th>
                                 <th>Taxable</th> <th>GST %</th> <th>GST Amt</th> <th>Total</th> <th>Action</th>
                             </tr>
                         </thead>
@@ -874,7 +890,8 @@
                 </div>
             </div>
             <div style="margin-top: 2rem; display: flex; gap: 1rem;">
-                <button class="btn btn-success" onclick="savePurchaseBill()">💾 Save Purchase Bill</button>
+                <button class="btn btn-warning" onclick="savePurchaseBill('Draft')">💾 Save as Draft</button>
+                <button class="btn btn-success" onclick="savePurchaseBill('Completed')">✅ Mark as Complete</button>
                 <button class="btn btn-danger" onclick="closeModal('addPurchaseModal')">Cancel</button>
             </div>
         </div>
@@ -889,7 +906,7 @@
             <h2>Held Bills</h2>
             <div class="table-responsive-wrapper">
                 <table id="heldBillsTable">
-                    <thead><tr><th>Bill Date</th><th>Patient Name</th><th>Items</th><th>Amount</th><th>Action</th></tr></thead>
+                    <thead><tr><th>Bill No.</th><th>Date</th><th>Patient</th><th>Item Count</th><th>Amount</th><th>Action</th></tr></thead>
                     <tbody id="heldBillsBody"></tbody>
                 </table>
             </div>
@@ -934,6 +951,7 @@
         window.addEventListener('beforeunload', function() { navigator.sendBeacon('/api/logout-beacon', new Blob()); });
         let inventory = []; let billItems = []; let purchaseBillItems = []; let transactions = []; let settings = {};
         let customers = []; let suppliers = [];
+        let reportDataCache = [];
 
         const packagingTypes = ["", "STRIP", "BOTTLE", "PACK", "JAR", "TABLET", "CAPSULES", "BOX", "TUBE", "PIECE", "VIAL", "INJ", "SACHET", "SPRAY BOTTLE", "CAN", "UNIT", "AMPUL", "DROP", "PACKET", "POUCH", "INSURANCE", "RESPULE", "AMPOULE", "GLOVES", "INSULIN", "VIAL & SMALL BOTTLE", "SYRINGE", "TIN", "CONTAINER", "SUPPOSITRIES", "ML", "INJECTION" ];
         const API_BASE_URL = '/api';
@@ -942,8 +960,8 @@
             await fetchSettings(); 
             await fetchInventory(); 
             await fetchDashboardData(); 
-            await fetchCustomers(); // Fetch customers on load for searching
-            await fetchAllSuppliers(); // Fetch suppliers on load for searching
+            await fetchCustomers();
+            await fetchAllSuppliers();
             setTodayDate(); 
             await setSaleBillDate(); 
         });
@@ -1045,7 +1063,20 @@
         }
         
         document.addEventListener('click', (event) => { if (!event.target.closest('.select-wrapper')) { document.getElementById('billProductDropdown').style.display = 'none'; document.getElementById('patientNameDropdown').style.display = 'none'; document.getElementById('patientMobileDropdown').style.display = 'none'; document.getElementById('supplierDropdown').style.display = 'none';} });
-        function selectProduct(product) { document.getElementById('billProductSearch').value = `${product.name} - ${product.batch}`; document.getElementById('billProductId').value = product.id; document.getElementById('billBatch').value = product.batch; document.getElementById('billExpiry').value = product.expiry; document.getElementById('availableQty').value = product.quantity; document.getElementById('billMRP').value = Number(product.mrp).toFixed(2); document.getElementById('billRate').value = Number(product.sale_rate).toFixed(2); document.getElementById('billProductDropdown').style.display = 'none'; document.getElementById('billQty').max = product.quantity; document.getElementById('billQty').focus(); }
+        function selectProduct(product) { 
+            document.getElementById('billProductSearch').value = `${product.name} - ${product.batch}`; 
+            document.getElementById('billProductId').value = product.id;
+            const totalGst = (parseFloat(product.cgst) || 0) + (parseFloat(product.sgst) || 0);
+            document.getElementById('billProductGst').value = totalGst;
+            document.getElementById('billBatch').value = product.batch; 
+            document.getElementById('billExpiry').value = product.expiry; 
+            document.getElementById('availableQty').value = product.quantity; 
+            document.getElementById('billMRP').value = Number(product.mrp).toFixed(2); 
+            document.getElementById('billRate').value = Number(product.sale_rate).toFixed(2); 
+            document.getElementById('billRateInclusive').value = Number(product.sale_rate_inclusive).toFixed(2); 
+            document.getElementById('billProductDropdown').style.display = 'none'; 
+            document.getElementById('billQty').max = product.quantity; document.getElementById('billQty').focus(); 
+        }
         function addToBill() {
             const productId = Number(document.getElementById('billProductId').value); const quantity = parseFloat(document.getElementById('billQty').value); const rate = Number(document.getElementById('billRate').value); const discount = Number(document.getElementById('billDiscount').value);
             if (!productId || isNaN(quantity) || quantity <= 0 || rate < 0) { showAlert('Please select a product and enter valid details.', 'danger'); return; }
@@ -1057,11 +1088,23 @@
             const tableBody = document.getElementById('billItemsBody'); tableBody.innerHTML = ''; if (billItems.length === 0) { tableBody.innerHTML = '<tr><td colspan="10" style="text-align: center;">No items added</td></tr>'; return; }
             billItems.forEach((item, index) => {
                 const amount = (item.rate * item.quantity) * (1 - (item.discount / 100)); const totalGST = amount * ((Number(item.cgst) + Number(item.sgst)) / 100); const row = document.createElement('tr');
-                row.innerHTML = `<td>${item.name}</td> <td>${item.batch}</td> <td>${item.expiry}</td> <td>₹${Number(item.mrp).toFixed(2)}</td> <td>₹${Number(item.rate).toFixed(2)}</td> <td>${parseFloat(item.quantity).toFixed(2)}</td> <td>${item.discount}%</td> <td>${(Number(item.cgst) + Number(item.sgst))}%</td> <td>₹${(amount + totalGST).toFixed(2)}</td> <td><button class="btn btn-danger btn-sm" onclick="removeFromBill(${index})">🗑️</button></td>`;
+                row.innerHTML = `<td>${item.name}</td> <td>${item.batch}</td> <td>${item.hsn}</td> <td>₹${Number(item.mrp).toFixed(2)}</td> <td>₹${Number(item.rate).toFixed(2)}</td> <td>${parseFloat(item.quantity).toFixed(2)}</td> <td>${item.discount}%</td> <td>${(Number(item.cgst) + Number(item.sgst))}%</td> <td>₹${(amount + totalGST).toFixed(2)}</td> <td><button class="btn btn-danger btn-sm" onclick="removeFromBill(${index})">🗑️</button></td>`;
                 tableBody.appendChild(row);
             });
         }
-        function clearProductInputs() { document.getElementById('billProductSearch').value = ''; document.getElementById('billProductId').value = ''; document.getElementById('billQty').value = ''; document.getElementById('billDiscount').value = '0'; document.getElementById('billBatch').value = ''; document.getElementById('billExpiry').value = ''; document.getElementById('availableQty').value = ''; document.getElementById('billMRP').value = ''; document.getElementById('billRate').value = ''; }
+        function clearProductInputs() { 
+            document.getElementById('billProductSearch').value = ''; 
+            document.getElementById('billProductId').value = ''; 
+            document.getElementById('billQty').value = ''; 
+            document.getElementById('billDiscount').value = '0'; 
+            document.getElementById('billBatch').value = ''; 
+            document.getElementById('billExpiry').value = ''; 
+            document.getElementById('availableQty').value = ''; 
+            document.getElementById('billMRP').value = ''; 
+            document.getElementById('billRate').value = ''; 
+            document.getElementById('billRateInclusive').value = ''; 
+            document.getElementById('billProductGst').value = ''; 
+        }
         function removeFromBill(index) { billItems.splice(index, 1); updateBillTable(); calculateTotals(); }
         function calculateTotals() {
             let subtotal = 0, totalDiscount = 0, totalCGST = 0, totalSGST = 0; const overallDiscountPercent = parseFloat(document.getElementById('overallDiscountPercent').value) || 0;
@@ -1110,7 +1153,7 @@
                     }
                     await fetchInventory();
                     await fetchDashboardData();
-                    clearBill(); // This will clear the form after any successful save (new or update)
+                    clearBill(); 
                 } else {
                     showAlert(result.error, 'danger');
                 }
@@ -1138,22 +1181,29 @@
             const type = document.getElementById('reportType').value; const fromDate = document.getElementById('reportFromDate').value; const toDate = document.getElementById('reportToDate').value; const contentDiv = document.getElementById('reportContent'); contentDiv.innerHTML = '<h3>Generating report...</h3>';
             if(!fromDate || !toDate) { showAlert('Please select a valid date range.', 'danger'); contentDiv.innerHTML = ''; return; }
             try {
-                const response = await fetch(`${API_BASE_URL}/reports?type=${type}&fromDate=${fromDate}&toDate=${toDate}`); if (!response.ok) throw new Error(await response.json().then(e => e.error)); const data = await response.json();
-                let html = `<h3>${type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())} Report from ${fromDate} to ${toDate}</h3> <button class="btn btn-sm btn-info no-print" onclick="printReport()">Print Report</button>`;
+                const response = await fetch(`${API_BASE_URL}/reports?type=${type}&fromDate=${fromDate}&toDate=${toDate}`); if (!response.ok) throw new Error(await response.json().then(e => e.error)); 
+                const data = await response.json();
+                reportDataCache = data; // Cache data for export
+                let reportTitle = type.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+                let html = `<h3>${reportTitle} Report from ${fromDate} to ${toDate}</h3> <button class="btn btn-sm btn-success no-print" onclick="exportReportToExcel('${reportTitle}')">Export to Excel</button>`;
                 if (data.length === 0) { html += `<p>No data found for this period.</p>`; } else { const headers = Object.keys(data[0]); html += `<table class="report-table"><thead><tr>${headers.map(h => `<th>${h.replace(/_/g, ' ').toUpperCase()}</th>`).join('')}</tr></thead><tbody>`; data.forEach(row => { html += `<tr>${headers.map(h => { const val = row[h]; let displayVal = val === null || val === undefined ? '' : val; const isCurrency = typeof val === 'number' && (h.includes('rate') || h.includes('amount') || h.includes('total') || h.includes('mrp') || h.includes('gst') || h.includes('subtotal') || h.toLowerCase().includes('profit') || h.includes('value')); if(isCurrency) { displayVal = '₹' + parseFloat(val).toFixed(2); } else if (h.includes('date')) { displayVal = formatDateForDisplay(val); } return `<td>${displayVal}</td>`; }).join('')}</tr>`; }); html += `</tbody></table>`; }
                 contentDiv.innerHTML = html;
             } catch(error) { showAlert(`Error generating report: ${error.message}`, 'danger'); contentDiv.innerHTML = `<p style="color:red;">Could not generate report.</p>`; }
         }
-        function printReport() {
-            const reportContent = document.getElementById('reportContent').innerHTML;
-            const printWindow = window.open('', '', 'height=800,width=1200');
-            printWindow.document.write('<html><head><title>Report</title>');
-            printWindow.document.write('<style> body { font-family: sans-serif; } table { width: 100%; border-collapse: collapse; } th, td { padding: 8px; border: 1px solid #ddd; text-align: left;} th { background-color: #f2f2f2; } .no-print { display: none; } </style>');
-            printWindow.document.write('</head><body>');
-            printWindow.document.write(reportContent);
-            printWindow.document.write('</body></html>');
-            printWindow.document.close();
-            setTimeout(() => { printWindow.print(); printWindow.close(); }, 250);
+        function exportReportToExcel(reportName) {
+            if (reportDataCache.length === 0) {
+                showAlert("No data to export.", "warning");
+                return;
+            }
+            const fromDate = document.getElementById('reportFromDate').value;
+            const toDate = document.getElementById('reportToDate').value;
+            const fileName = `${reportName.replace(/\s+/g, '_')}_${fromDate}_to_${toDate}.xlsx`;
+
+            const worksheet = XLSX.utils.json_to_sheet(reportDataCache);
+            const workbook = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(workbook, worksheet, reportName);
+            XLSX.writeFile(workbook, fileName);
+            showAlert("Report exported successfully!", "success");
         }
         async function fetchBills() { try { const bills = await fetch(`${API_BASE_URL}/bills`).then(res => res.json()); updateBillsTable(bills); } catch (error) { showAlert(error.message, 'danger'); } }
         function updateBillsTable(bills) {
@@ -1188,46 +1238,129 @@
         async function fetchPurchaseBills() { try { const purchaseBills = await fetch(`${API_BASE_URL}/purchases`).then(res => res.json()); updatePurchaseBillsTable(purchaseBills); } catch (error) { showAlert(error.message, 'danger'); } }
         function updatePurchaseBillsTable(bills) {
             const tableBody = document.getElementById('purchaseBillsBody'); tableBody.innerHTML = ''; if (!bills || bills.length === 0) { tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No purchase bills found</td></tr>'; return; }
-            bills.forEach(bill => { const row = document.createElement('tr'); row.innerHTML = `<td>${bill.bill_number}</td> <td>${bill.supplier_name}</td> <td>${formatDateForDisplay(bill.bill_date)}</td> <td>${bill.tax_type}</td> <td>₹${Number(bill.grand_total).toFixed(2)}</td> <td><button class="btn btn-info btn-sm" onclick="viewPurchaseBill(${bill.id})">👁️ View</button></td>`; tableBody.appendChild(row); });
+            bills.forEach(bill => { 
+                const isDraft = bill.status === 'Draft';
+                const statusColor = isDraft ? 'orange' : 'green';
+                const actions = isDraft 
+                    ? `<button class="btn btn-warning btn-sm" onclick="editPurchaseBill(${bill.id})">✏️ Edit</button> <button class="btn btn-success btn-sm" onclick="completePurchaseBill(${bill.id})">✅ Complete</button>`
+                    : `<button class="btn btn-info btn-sm" onclick="viewPurchaseBill(${bill.id})">👁️ View</button>`;
+                const row = document.createElement('tr'); 
+                row.innerHTML = `<td>${bill.bill_number}</td> <td>${bill.supplier_name}</td> <td>${formatDateForDisplay(bill.bill_date)}</td> <td>₹${Number(bill.grand_total).toFixed(2)}</td> <td style="color: ${statusColor}; font-weight: bold;">${bill.status}</td> <td>${actions}</td>`; 
+                tableBody.appendChild(row); 
+            });
         }
         async function showAddPurchaseModal() {
-            purchaseBillItems = []; document.getElementById('addPurchaseModal').classList.add('active'); document.getElementById('purchaseSupplierName').value = ''; document.getElementById('purchaseBillNumber').value = '';
+            purchaseBillItems = [];
+            document.getElementById('purchaseModalTitle').textContent = "Add New Purchase Bill";
+            document.getElementById('editPurchaseId').value = '';
+            document.getElementById('addPurchaseModal').classList.add('active');
+            document.getElementById('purchaseSupplierName').value = ''; 
+            document.getElementById('purchaseBillNumber').value = '';
             try { const response = await fetch(`${API_BASE_URL}/current-ist-date`); const data = await response.json(); document.getElementById('purchaseBillDate').value = data.currentDate; } catch (error) { console.error("Could not fetch current date, falling back to local date.", error); document.getElementById('purchaseBillDate').valueAsDate = new Date(); }
             clearPurchaseProductForm(); updatePurchaseItemsTable(); calculatePurchaseTotal();
         }
-        function clearPurchaseProductForm() { document.getElementById('purchaseProductName').value = ''; document.getElementById('purchasePackaging').value = ""; document.getElementById('purchaseHSN').value = ''; document.getElementById('purchaseBatch').value = ''; document.getElementById('purchaseQty').value = ''; document.getElementById('purchaseFreeQty').value = '0'; document.getElementById('purchaseMRP').value = ''; document.getElementById('purchaseRate').value = ''; document.getElementById('purchaseGstPercent').value = '12'; document.getElementById('purchaseDiscount').value = '0'; document.getElementById('purchaseSaleRateIncl').value = ''; document.getElementById('purchaseSaleGstPercent').value = '12'; document.getElementById('purchaseSaleRateExcl').value = ''; document.getElementById('purchaseExpiry').value = ''; }
+        function clearPurchaseProductForm() { document.getElementById('purchaseProductName').value = ''; document.getElementById('purchasePackaging').value = ""; document.getElementById('purchaseHSN').value = ''; document.getElementById('purchaseBatch').value = ''; document.getElementById('purchaseQty').value = ''; document.getElementById('purchaseFreeQty').value = '0'; document.getElementById('purchaseMRP').value = ''; document.getElementById('purchaseRate').value = ''; document.getElementById('purchaseCGST').value = '6'; document.getElementById('purchaseSGST').value = '6'; document.getElementById('purchaseIGST').value = '12'; document.getElementById('purchaseDiscount').value = '0'; document.getElementById('purchaseSaleRateIncl').value = ''; document.getElementById('purchaseSaleGstPercent').value = '12'; document.getElementById('purchaseSaleRateExcl').value = ''; document.getElementById('purchaseExpiry').value = ''; }
         function calculatePurchaseSaleExclusiveRate(){ const inclRate = parseFloat(document.getElementById('purchaseSaleRateIncl').value) || 0; const saleGst = parseFloat(document.getElementById('purchaseSaleGstPercent').value) || 0; const exclRateEl = document.getElementById('purchaseSaleRateExcl'); if(inclRate > 0 && saleGst >= 0) { exclRateEl.value = (inclRate / (1 + (saleGst/100))).toFixed(2); } else { exclRateEl.value = ''; } }
         function addProductToPurchaseBill() {
-            const purchaseTaxType = document.querySelector('input[name="purchaseTaxType"]:checked').value; const purchaseGst = parseFloat(document.getElementById('purchaseGstPercent').value) || 0; const saleGst = parseFloat(document.getElementById('purchaseSaleGstPercent').value) || 0; const selectedPackaging = document.getElementById('purchasePackaging').value;
-            const item = { productName: document.getElementById('purchaseProductName').value, packaging: selectedPackaging, hsn: document.getElementById('purchaseHSN').value, batch: document.getElementById('purchaseBatch').value, quantity: parseFloat(document.getElementById('purchaseQty').value), freeQuantity: parseFloat(document.getElementById('purchaseFreeQty').value) || 0, mrp: parseFloat(document.getElementById('purchaseMRP').value), purchaseRate: parseFloat(document.getElementById('purchaseRate').value), discount: parseFloat(document.getElementById('purchaseDiscount').value), expiry: document.getElementById('purchaseExpiry').value, saleRate: parseFloat(document.getElementById('purchaseSaleRateExcl').value), saleRateIncl: parseFloat(document.getElementById('purchaseSaleRateIncl').value), saleCgst: saleGst / 2, saleSgst: saleGst / 2, cgst: purchaseTaxType === 'CSGST' ? purchaseGst / 2 : 0, sgst: purchaseTaxType === 'CSGST' ? purchaseGst / 2 : 0, igst: purchaseTaxType === 'IGST' ? purchaseGst : 0, };
+            const taxType = document.querySelector('input[name="purchaseTaxType"]:checked').value;
+            const item = { 
+                productName: document.getElementById('purchaseProductName').value, 
+                packaging: document.getElementById('purchasePackaging').value, 
+                hsn: document.getElementById('purchaseHSN').value, batch: document.getElementById('purchaseBatch').value, 
+                quantity: parseFloat(document.getElementById('purchaseQty').value), 
+                freeQuantity: parseFloat(document.getElementById('purchaseFreeQty').value) || 0, 
+                mrp: parseFloat(document.getElementById('purchaseMRP').value), 
+                purchaseRate: parseFloat(document.getElementById('purchaseRate').value), 
+                discount: parseFloat(document.getElementById('purchaseDiscount').value), 
+                expiry: document.getElementById('purchaseExpiry').value, 
+                saleRate: parseFloat(document.getElementById('purchaseSaleRateExcl').value), 
+                saleRateIncl: parseFloat(document.getElementById('purchaseSaleRateIncl').value), 
+                purchase_cgst: taxType === 'CSGST' ? (parseFloat(document.getElementById('purchaseCGST').value) || 0) : 0,
+                purchase_sgst: taxType === 'CSGST' ? (parseFloat(document.getElementById('purchaseSGST').value) || 0) : 0,
+                purchase_igst: taxType === 'IGST' ? (parseFloat(document.getElementById('purchaseIGST').value) || 0) : 0,
+            };
+            const saleGst = parseFloat(document.getElementById('purchaseSaleGstPercent').value) || 0;
+            item.sale_cgst = saleGst / 2; item.sale_sgst = saleGst / 2;
             if (!item.productName || !item.batch || !item.hsn || !item.expiry || !item.packaging || isNaN(item.quantity) || item.quantity <= 0 || isNaN(item.purchaseRate) || isNaN(item.saleRate) || isNaN(item.saleRateIncl) || isNaN(item.mrp)) { showAlert('Please fill all required product fields (*) with valid values.', 'danger'); return; }
             purchaseBillItems.push(item); updatePurchaseItemsTable(); calculatePurchaseTotal(); clearPurchaseProductForm(); document.getElementById('purchaseProductName').focus();
         }
         function updatePurchaseItemsTable() {
-            const tableBody = document.getElementById('purchaseItemsBody'); tableBody.innerHTML = ''; if (purchaseBillItems.length === 0) { tableBody.innerHTML = '<tr><td colspan="12" style="text-align: center;">No items added</td></tr>'; return; }
-            purchaseBillItems.forEach((item, index) => { const baseAmount = (item.purchaseRate || 0) * (item.quantity || 0); const discountAmount = baseAmount * ((item.discount || 0) / 100); const taxableAmount = baseAmount - discountAmount; const gstPercent = (item.igst > 0 ? item.igst : (item.cgst + item.sgst)); const gstAmount = taxableAmount * (gstPercent / 100); const totalAmount = taxableAmount + gstAmount; const gstText = item.igst > 0 ? `${item.igst}% I` : `${item.cgst + item.sgst}% C/S`; const row = document.createElement('tr'); row.innerHTML = `<td>${item.productName}</td> <td>${item.batch}</td> <td>${parseFloat(item.quantity).toFixed(2)}</td> <td>${parseFloat(item.freeQuantity).toFixed(2)}</td> <td>₹${Number(item.purchaseRate).toFixed(2)}</td> <td>${item.discount.toFixed(2)}%</td> <td>₹${discountAmount.toFixed(2)}</td> <td>₹${taxableAmount.toFixed(2)}</td> <td>${gstText}</td> <td>₹${gstAmount.toFixed(2)}</td> <td>₹${totalAmount.toFixed(2)}</td> <td><button class="btn btn-danger btn-sm" onclick="removeProductFromPurchase(${index})">🗑️</button></td>`; tableBody.appendChild(row); });
+            const tableBody = document.getElementById('purchaseItemsBody'); tableBody.innerHTML = ''; if (purchaseBillItems.length === 0) { tableBody.innerHTML = '<tr><td colspan="11" style="text-align: center;">No items added</td></tr>'; return; }
+            purchaseBillItems.forEach((item, index) => { 
+                const baseAmount = (item.purchaseRate || 0) * (item.quantity || 0); 
+                const discountAmount = baseAmount * ((item.discount || 0) / 100); 
+                const taxableAmount = baseAmount - discountAmount; 
+                const gstPercent = item.purchase_igst > 0 ? item.purchase_igst : (item.purchase_cgst + item.purchase_sgst); 
+                const gstAmount = taxableAmount * (gstPercent / 100); 
+                const totalAmount = taxableAmount + gstAmount; 
+                const gstText = item.purchase_igst > 0 ? `${item.purchase_igst}% I` : `${item.purchase_cgst + item.purchase_sgst}% C/S`; 
+                const row = document.createElement('tr'); 
+                row.innerHTML = `<td>${item.productName}</td> <td>${item.batch}</td> <td>${parseFloat(item.quantity).toFixed(2)}</td> <td>${parseFloat(item.freeQuantity).toFixed(2)}</td> <td>₹${Number(item.purchaseRate).toFixed(2)}</td> <td>${item.discount.toFixed(2)}%</td> <td>₹${taxableAmount.toFixed(2)}</td> <td>${gstText}</td> <td>₹${gstAmount.toFixed(2)}</td> <td>₹${totalAmount.toFixed(2)}</td> <td><button class="btn btn-danger btn-sm" onclick="removeProductFromPurchase(${index})">🗑️</button></td>`; 
+                tableBody.appendChild(row); 
+            });
         }
         function removeProductFromPurchase(index) { purchaseBillItems.splice(index, 1); updatePurchaseItemsTable(); calculatePurchaseTotal(); }
         function calculatePurchaseTotal() {
             const overallDiscountPercent = parseFloat(document.getElementById('purchaseOverallDiscountPercent').value) || 0; let totalPreTax = 0; let totalGstAmount = 0;
             purchaseBillItems.forEach(item => { const base = (item.purchaseRate || 0) * (item.quantity || 0); const itemDiscounted = base * (1 - ((item.discount || 0) / 100)); totalPreTax += itemDiscounted; });
             const overallDiscountAmount = totalPreTax * (overallDiscountPercent / 100); const taxableAmount = totalPreTax - overallDiscountAmount;
-            purchaseBillItems.forEach(item => { const base = (item.purchaseRate || 0) * (item.quantity || 0); const itemDiscounted = base * (1 - ((item.discount || 0) / 100)); const finalDiscounted = itemDiscounted * (1 - (overallDiscountPercent / 100)); const totalGstPercent = (Number(item.igst) || 0) > 0 ? (Number(item.igst) || 0) : ((Number(item.cgst) || 0) + (Number(item.sgst) || 0)); const itemGstAmount = finalDiscounted * (totalGstPercent / 100); totalGstAmount += itemGstAmount; });
+            purchaseBillItems.forEach(item => { const base = (item.purchaseRate || 0) * (item.quantity || 0); const itemDiscounted = base * (1 - ((item.discount || 0) / 100)); const finalDiscounted = itemDiscounted * (1 - (overallDiscountPercent / 100)); const totalGstPercent = Number(item.purchase_igst) || (Number(item.purchase_cgst) + Number(item.purchase_sgst)); const itemGstAmount = finalDiscounted * (totalGstPercent / 100); totalGstAmount += itemGstAmount; });
             const totalBeforeRounding = taxableAmount + totalGstAmount; const roundedTotal = Math.round(totalBeforeRounding); const rounding = roundedTotal - totalBeforeRounding;
             document.getElementById('purchaseTotalPreTax').textContent = `₹${totalPreTax.toFixed(2)}`; document.getElementById('purchaseOverallDiscountAmount').textContent = `₹${overallDiscountAmount.toFixed(2)}`; document.getElementById('purchaseTaxableAmount').textContent = `₹${taxableAmount.toFixed(2)}`; document.getElementById('purchaseTotalGstAmount').textContent = `₹${totalGstAmount.toFixed(2)}`; document.getElementById('purchaseRoundingAmount').textContent = `₹${rounding.toFixed(2)}`; document.getElementById('purchaseGrandTotal').textContent = `₹${roundedTotal.toFixed(2)}`;
         }
-        async function savePurchaseBill() {
-            const purchaseData = { supplierName: document.getElementById('purchaseSupplierName').value, billNumber: document.getElementById('purchaseBillNumber').value, billDate: document.getElementById('purchaseBillDate').value, taxType: document.querySelector('input[name="purchaseTaxType"]:checked').value, items: purchaseBillItems, overallDiscountPercent: document.getElementById('purchaseOverallDiscountPercent').value, };
+        async function savePurchaseBill(status) {
+            const editId = document.getElementById('editPurchaseId').value;
+            const isEditing = !!editId;
+            const url = isEditing ? `${API_BASE_URL}/purchases/${editId}` : `${API_BASE_URL}/purchases`;
+            const method = isEditing ? 'PUT' : 'POST';
+
+            const purchaseData = { supplierName: document.getElementById('purchaseSupplierName').value, billNumber: document.getElementById('purchaseBillNumber').value, billDate: document.getElementById('purchaseBillDate').value, taxType: document.querySelector('input[name="purchaseTaxType"]:checked').value, items: purchaseBillItems, overallDiscountPercent: document.getElementById('purchaseOverallDiscountPercent').value, status };
             if (!purchaseData.supplierName || !purchaseData.billNumber || !purchaseData.billDate || purchaseData.items.length === 0) { showAlert('Please fill supplier details and add at least one product.', 'danger'); return; }
-            try { const response = await fetch(`${API_BASE_URL}/purchases`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(purchaseData) }); const result = await response.json(); if (response.ok) { showAlert(result.message, 'success'); closeModal('addPurchaseModal'); await fetchPurchaseBills(); await fetchInventory(); } else { showAlert(result.error, 'danger'); } } catch (error) { showAlert('Failed to save purchase bill.', 'danger'); }
+            try { const response = await fetch(url, { method: method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(purchaseData) }); const result = await response.json(); if (response.ok) { showAlert(result.message, 'success'); closeModal('addPurchaseModal'); await fetchPurchaseBills(); await fetchInventory(); } else { showAlert(result.error, 'danger'); } } catch (error) { showAlert(`Failed to save purchase bill.`, 'danger'); }
         }
         async function viewPurchaseBill(id) {
             try {
                 const bill = await fetch(`${API_BASE_URL}/purchases/${id}`).then(res => res.json());
-                const itemsHtml = bill.items.map(item => `<tr> <td>${item.product_name}</td> <td>${item.packaging || ''}</td> <td>${item.batch}</td> <td>${parseFloat(item.quantity).toFixed(2)}</td> <td>${parseFloat(item.free_quantity || 0).toFixed(2)}</td> <td>₹${Number(item.purchase_rate).toFixed(2)}</td> <td>${item.discount || 0}%</td> <td>${item.igst > 0 ? item.igst + '% (IGST)' : (item.cgst + item.sgst) + '%'}</td> <td>₹${Number(item.amount).toFixed(2)}</td> </tr>`).join('');
+                const itemsHtml = bill.items.map(item => `<tr> <td>${item.product_name}</td> <td>${item.packaging || ''}</td> <td>${item.batch}</td> <td>${parseFloat(item.quantity).toFixed(2)}</td> <td>${parseFloat(item.free_quantity || 0).toFixed(2)}</td> <td>₹${Number(item.purchase_rate).toFixed(2)}</td> <td>${item.discount || 0}%</td> <td>${item.purchase_igst > 0 ? item.purchase_igst + '% (I)' : (item.purchase_cgst + item.purchase_sgst) + '%'}</td> <td>₹${Number(item.amount).toFixed(2)}</td> </tr>`).join('');
                 document.getElementById('viewPurchaseContent').innerHTML = `<p><strong>Supplier:</strong> ${bill.supplier_name}</p> <p><strong>Bill No:</strong> ${bill.bill_number}</p> <p><strong>Date:</strong> ${formatDateForDisplay(bill.bill_date)}</p> <p><strong>Tax Type:</strong> ${bill.tax_type}</p> <h4 style="margin-top:20px;">Items</h4> <div class="table-responsive-wrapper"><table> <thead> <tr> <th>Product</th> <th>Pkg</th> <th>Batch</th> <th>Qty</th> <th>Free</th> <th>Rate</th> <th>Disc</th> <th>GST</th> <th>Amount</th> </tr> </thead> <tbody>${itemsHtml}</tbody> </table></div> <div class="total-section" style="margin-top:10px;"> <div class="total-row"><span>Total (Pre-Tax):</span><span>₹${Number(bill.total_pre_tax).toFixed(2)}</span></div> <div class="total-row"><span>Overall Discount:</span><span>₹${Number(bill.overall_discount_amount).toFixed(2)} (${bill.overall_discount_percent}%)</span></div> <div class="total-row"><span>Taxable Amount:</span><span>₹${Number(bill.taxable_amount).toFixed(2)}</span></div> <div class="total-row"><span>Total GST:</span><span>₹${Number(bill.total_gst_amount).toFixed(2)}</span></div> <div class="total-row"><span>Rounding:</span><span>₹${Number(bill.rounding).toFixed(2)}</span></div> <div class="total-row"><strong><span>Grand Total:</span></strong><strong><span>₹${Number(bill.grand_total).toFixed(2)}</span></strong></div> </div>`;
                 document.getElementById('viewPurchaseModal').classList.add('active');
             } catch (error) { showAlert(error.message, 'danger'); }
+        }
+        async function editPurchaseBill(id) {
+            try {
+                const bill = await fetch(`${API_BASE_URL}/purchases/${id}`).then(res => res.json());
+                document.getElementById('purchaseModalTitle').textContent = "Edit Purchase Bill";
+                document.getElementById('editPurchaseId').value = id;
+                document.getElementById('purchaseSupplierName').value = bill.supplier_name;
+                document.getElementById('purchaseBillNumber').value = bill.bill_number;
+                document.getElementById('purchaseBillDate').value = bill.bill_date.split('T')[0];
+                document.querySelector(`input[name="purchaseTaxType"][value="${bill.tax_type}"]`).checked = true;
+                document.getElementById('purchaseOverallDiscountPercent').value = bill.overall_discount_percent;
+                purchaseBillItems = bill.items;
+                updatePurchaseItemsTable();
+                calculatePurchaseTotal();
+                document.getElementById('addPurchaseModal').classList.add('active');
+            } catch(error) {
+                showAlert('Could not load purchase bill for editing.', 'danger');
+            }
+        }
+        async function completePurchaseBill(id) {
+            if (!confirm("Are you sure you want to mark this purchase as complete? This will update inventory and lock the bill from future edits.")) return;
+            try {
+                const bill = await fetch(`${API_BASE_URL}/purchases/${id}`).then(res => res.json());
+                bill.status = 'Completed';
+                const response = await fetch(`${API_BASE_URL}/purchases/${id}`, { method: 'PUT', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(bill) });
+                const result = await response.json();
+                if (response.ok) {
+                    showAlert('Purchase marked as complete!', 'success');
+                    await fetchPurchaseBills();
+                    await fetchInventory();
+                } else {
+                    showAlert(result.error, 'danger');
+                }
+            } catch(error) {
+                 showAlert('Failed to mark purchase as complete.', 'danger');
+            }
         }
         function formatDateForDisplay(dateString) { if (!dateString) return 'N/A'; const date = new Date(dateString); const day = String(date.getDate()).padStart(2, '0'); const month = String(date.getMonth() + 1).padStart(2, '0'); const year = date.getFullYear(); return `${day}/${month}/${year}`; }
         async function setSaleBillDate() { try { const response = await fetch(`${API_BASE_URL}/current-ist-date`); const data = await response.json(); if (document.getElementById('saleBillDate')) { document.getElementById('saleBillDate').value = data.currentDate; } } catch (error) { console.error("Could not fetch current date for sale bill, falling back to local date.", error); if (document.getElementById('saleBillDate')) { const today = new Date().toISOString().split('T')[0]; document.getElementById('saleBillDate').value = today; } } }
@@ -1237,7 +1370,7 @@
         async function fetchCustomers() { 
             try { 
                 const response = await fetch(`${API_BASE_URL}/customers`); 
-                customers = await response.json(); // Store for client-side search
+                customers = await response.json();
                 if (document.getElementById('customers').classList.contains('active')) {
                     updateCustomersTable(customers); 
                 }
@@ -1279,9 +1412,7 @@
                 query = mobileInput.value.trim().toLowerCase();
                 activeDropdown = mobileDropdown;
                 nameDropdown.style.display = 'none';
-            } else {
-                return; // Neither input is focused
-            }
+            } else { return; }
 
             activeDropdown.innerHTML = '';
             if (query.length < 2) {
@@ -1314,7 +1445,6 @@
             document.getElementById('patientNameDropdown').style.display = 'none'; 
             document.getElementById('patientMobileDropdown').style.display = 'none'; 
             
-            // Fetch and display purchase history
             const historyDiv = document.getElementById('customerHistory');
             try {
                 const response = await fetch(`${API_BASE_URL}/customers/${customer.id}/history`);
@@ -1340,28 +1470,17 @@
                 historyDiv.style.display = 'block';
             }
         }
-
-        // UPDATED: Now populates the "Add Product" section instead of adding directly to bill
         function addProductFromHistory(productName) {
             const availableBatches = inventory.filter(p => p.name === productName && p.quantity > 0);
-
-            if (availableBatches.length === 0) {
-                showAlert(`'${productName}' is out of stock.`, 'danger');
-                return;
-            }
-
-            // Find the batch with the latest expiry date as the "best" one to add
+            if (availableBatches.length === 0) { showAlert(`'${productName}' is out of stock.`, 'danger'); return; }
             const bestBatch = availableBatches.sort((a, b) => {
                 const dateA = a.expiry ? new Date(a.expiry) : new Date(0);
                 const dateB = b.expiry ? new Date(b.expiry) : new Date(0);
-                return dateB - dateA; // Sort descending by date
+                return dateB - dateA;
             })[0];
-            
-            // Use the existing selectProduct function to populate the form
             selectProduct(bestBatch);
             showAlert(`Selected '${productName}'. Please enter quantity.`, 'info');
         }
-
         async function showHeldBillsModal() {
             try {
                 const response = await fetch(`${API_BASE_URL}/held-bills`);
@@ -1371,9 +1490,10 @@
                 if(bills.length > 0) {
                     bills.forEach(bill => {
                         const row = `<tr>
+                            <td>${bill.bill_number}</td>
                             <td>${formatDateForDisplay(bill.bill_date)}</td>
                             <td>${bill.patient_name}</td>
-                            <td>${bill.item_count || 'N/A'}</td>
+                            <td>${bill.item_count || '0'}</td>
                             <td>₹${parseFloat(bill.grand_total).toFixed(2)}</td>
                             <td style="display:flex; gap: 5px;">
                                 <button class="btn btn-success btn-sm" onclick="recallBill(${bill.id})">Recall</button>
@@ -1383,14 +1503,13 @@
                         tableBody.innerHTML += row;
                     });
                 } else {
-                    tableBody.innerHTML = '<tr><td colspan="5" style="text-align:center;">No bills are currently on hold.</td></tr>';
+                    tableBody.innerHTML = '<tr><td colspan="6" style="text-align:center;">No bills are currently on hold.</td></tr>';
                 }
                 document.getElementById('heldBillsModal').classList.add('active');
             } catch (error) {
                 showAlert('Could not fetch held bills.', 'danger');
             }
         }
-
         async function deleteHeldBill(billId, element) {
             if(confirm('Are you sure you want to delete this held bill permanently?')) {
                 try {
@@ -1398,7 +1517,6 @@
                     const result = await response.json();
                     if(response.ok) {
                         showAlert('Held bill deleted successfully.', 'success');
-                        // Remove the row from the table
                         element.closest('tr').remove();
                     } else {
                         showAlert(result.error, 'danger');
@@ -1408,15 +1526,12 @@
                 }
             }
         }
-
         async function recallBill(billId) {
             try {
                 const response = await fetch(`${API_BASE_URL}/bills/${billId}`);
-                if (!response.ok) {
-                    throw new Error('Failed to fetch bill data.');
-                }
+                if (!response.ok) throw new Error('Failed to fetch bill data.');
                 const bill = await response.json();
-                clearBill(); // Clear current form before loading
+                clearBill(); 
                 
                 document.getElementById('currentBillId').value = bill.id;
                 document.getElementById('patientName').value = bill.patient_name;
@@ -1425,7 +1540,6 @@
                 document.getElementById('saleBillDate').value = bill.bill_date.split('T')[0];
                 document.getElementById('overallDiscountPercent').value = bill.overall_discount_percent;
 
-                // BUG FIX: Map 'product_name' to 'name' and 'product_id' to 'id'
                 billItems = bill.items.map(item => ({
                     ...item,
                     id: item.product_id,
@@ -1436,7 +1550,6 @@
                 calculateTotals();
                 closeModal('heldBillsModal');
                 showAlert(`Bill for ${bill.patient_name} recalled successfully.`, 'info');
-                // Force switch to billing tab
                 document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
                 document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
                 document.querySelector('.tab[onclick="switchTab(\'billing\')"]').classList.add('active');
@@ -1447,8 +1560,6 @@
                 showAlert('Failed to recall the bill. Check console for details.', 'danger');
             }
         }
-
-
         async function fetchAllSuppliers() {
             try {
                 const res = await fetch(`${API_BASE_URL}/suppliers`);
@@ -1458,7 +1569,6 @@
                 showAlert('Failed to load suppliers list.', 'danger');
             }
         }
-
         async function searchSuppliers() {
             const query = document.getElementById('purchaseSupplierName').value.toLowerCase();
             const dropdown = document.getElementById('supplierDropdown');
@@ -1482,7 +1592,6 @@
                  dropdown.style.display = 'none';
             }
         }
-        
         function showStockAdjustmentModal(product) {
             document.getElementById('adjustmentProductId').value = product.id;
             document.getElementById('adjustmentProductName').textContent = `${product.name} (Batch: ${product.batch})`;
@@ -1492,7 +1601,6 @@
             document.getElementById('adjustmentNotes').value = '';
             document.getElementById('stockAdjustmentModal').classList.add('active');
         }
-
         async function submitStockAdjustment() {
             const payload = {
                 productId: document.getElementById('adjustmentProductId').value,
@@ -1516,7 +1624,7 @@
                 if (response.ok) {
                     showAlert(result.message, 'success');
                     closeModal('stockAdjustmentModal');
-                    fetchInventory(); // Refresh inventory list
+                    fetchInventory();
                 } else {
                     showAlert(result.error, 'danger');
                 }
@@ -1524,7 +1632,35 @@
                 showAlert('An error occurred while adjusting stock.', 'danger');
             }
         }
+        function updateSaleRates(source) {
+            const exclusiveEl = document.getElementById('billRate');
+            const inclusiveEl = document.getElementById('billRateInclusive');
+            const totalGstPercent = parseFloat(document.getElementById('billProductGst').value) || 0;
+            
+            if (totalGstPercent < 0) return;
+
+            if (source === 'exclusive') {
+                const exclusiveRate = parseFloat(exclusiveEl.value);
+                if (!isNaN(exclusiveRate)) {
+                    inclusiveEl.value = (exclusiveRate * (1 + totalGstPercent / 100)).toFixed(2);
+                } else {
+                    inclusiveEl.value = '';
+                }
+            } else { // source is 'inclusive'
+                const inclusiveRate = parseFloat(inclusiveEl.value);
+                 if (!isNaN(inclusiveRate)) {
+                    exclusiveEl.value = (inclusiveRate / (1 + totalGstPercent / 100)).toFixed(2);
+                } else {
+                    exclusiveEl.value = '';
+                }
+            }
+        }
+        function togglePurchaseGstFields() {
+            const taxType = document.querySelector('input[name="purchaseTaxType"]:checked').value;
+            document.getElementById('purchaseCGSTGroup').style.display = taxType === 'CSGST' ? 'block' : 'none';
+            document.getElementById('purchaseSGSTGroup').style.display = taxType === 'CSGST' ? 'block' : 'none';
+            document.getElementById('purchaseIGSTGroup').style.display = taxType === 'IGST' ? 'block' : 'none';
+        }
     </script>
 </body>
 </html>
-

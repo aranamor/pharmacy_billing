@@ -276,7 +276,6 @@ app.get('/api/customers', async (req, res) => {
 app.get('/api/customers/:id/history', async (req, res) => {
     try {
         const customerId = Number(req.params.id);
-        // UPDATED: Query now gets unique products and their last purchase date.
         const rows = await query(`
             SELECT
                 bi.product_name,
@@ -406,7 +405,12 @@ app.get('/api/bills', async (req, res) => {
 // Get Held Bills
 app.get('/api/held-bills', async (req, res) => {
     try {
-        const rows = await query("SELECT * FROM bills WHERE status = 'Held' ORDER BY id DESC");
+        const rows = await query(`
+            SELECT b.*, (SELECT COUNT(*) FROM bill_items WHERE bill_id = b.id) as item_count 
+            FROM bills b 
+            WHERE b.status = 'Held' 
+            ORDER BY b.id DESC
+        `);
         res.json(rows);
     } catch (err) {
         console.error('GET /api/held-bills error:', err);
@@ -422,7 +426,7 @@ app.get('/api/bills/:id', async (req, res) => {
             conn.release();
             return res.status(404).json({ error: 'Bill not found' });
         }
-        const [items] = await conn.query('SELECT bi.*, p.name as product_name FROM bill_items bi LEFT JOIN products p ON bi.product_id = p.id WHERE bi.bill_id = ?', [Number(req.params.id)]);
+        const [items] = await conn.query('SELECT bi.*, p.hsn, p.name as product_name FROM bill_items bi LEFT JOIN products p ON bi.product_id = p.id WHERE bi.bill_id = ?', [Number(req.params.id)]);
         conn.release();
         res.json({ ...bRows[0], items });
     } catch (err) {
@@ -434,7 +438,6 @@ app.get('/api/bills/:id', async (req, res) => {
 app.post('/api/bills', async (req, res) => {
     const conn = await pool.getConnection();
     try {
-        // UPDATED: Changed to snake_case to match frontend
         const { patient_name, patient_mobile, doctor_name, items, bill_date, overall_discount_percent, status = 'Completed' } = req.body;
         
         let customerId = null;
@@ -442,7 +445,6 @@ app.post('/api/bills', async (req, res) => {
             const [existing] = await conn.query('SELECT id FROM customers WHERE mobile = ? LIMIT 1', [patient_mobile]);
             if (existing.length > 0) {
                 customerId = existing[0].id;
-                // Optionally update customer name if it has changed
                 await conn.query('UPDATE customers SET name = ?, doctor_name = ? WHERE id = ?', [patient_name, doctor_name, customerId]);
             } else {
                 const [newCustomer] = await conn.query('INSERT INTO customers (name, mobile, doctor_name) VALUES (?, ?, ?)', [patient_name, patient_mobile, doctor_name]);
@@ -478,10 +480,9 @@ app.post('/api/bills', async (req, res) => {
         
         for (const it of items) {
             await conn.query(
-                `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                 [billId, it.id, it.name, it.batch, it.mrp, it.rate, parseFloat(it.quantity), it.expiry, it.discount, it.cgst, it.sgst]
+                `INSERT INTO bill_items (bill_id, product_id, product_name, hsn, batch, mrp, rate, quantity, expiry, discount, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 [billId, it.id, it.name, it.hsn, it.batch, it.mrp, it.rate, parseFloat(it.quantity), it.expiry, it.discount, it.cgst, it.sgst]
             );
-            // Only adjust stock for completed bills
             if (it.id && status === 'Completed') {
                 await conn.query(`UPDATE products SET quantity = GREATEST(0, quantity - ?) WHERE id = ?`, [parseFloat(it.quantity), it.id]);
             }
@@ -503,11 +504,12 @@ app.put('/api/bills/:id', async (req, res) => {
         const billId = Number(req.params.id);
         const { items, patient_name, patient_mobile, doctor_name, overall_discount_percent, status = 'Completed' } = req.body;
         
-        const [existingBill] = await conn.query('SELECT * FROM bills WHERE id = ?', [billId]);
-        if (!existingBill.length) {
+        const [existingBillResult] = await conn.query('SELECT * FROM bills WHERE id = ?', [billId]);
+        if (existingBillResult.length === 0) {
             return res.status(404).json({ error: 'Bill not found.' });
         }
-        const wasHeld = existingBill[0].status === 'Held';
+        const existingBill = existingBillResult[0];
+        const wasCompleted = existingBill.status === 'Completed';
 
         const [existingItems] = await conn.query('SELECT * FROM bill_items WHERE bill_id = ?', [billId]);
         
@@ -528,30 +530,31 @@ app.put('/api/bills/:id', async (req, res) => {
         await conn.beginTransaction();
         
         // Stock adjustment logic
-        if (status === 'Completed') {
-            const existingMap = {};
-            if (!wasHeld) { // Only revert stock if it was previously completed
-                for (const it of existingItems) {
-                    if(it.product_id) existingMap[it.product_id] = (existingMap[it.product_id] || 0) + it.quantity;
-                }
+        const existingMap = {};
+        if (wasCompleted) { // Only adjust stock if it was previously completed and affecting inventory
+            for (const it of existingItems) {
+                if(it.product_id) existingMap[it.product_id] = (existingMap[it.product_id] || 0) + it.quantity;
             }
-            const newMap = {};
+        }
+        const newMap = {};
+        if (status === 'Completed') {
             for (const it of items) {
                  if(it.product_id || it.id) newMap[it.product_id || it.id] = (newMap[it.product_id || it.id] || 0) + parseFloat(it.quantity);
             }
-            for (const k of new Set([...Object.keys(existingMap), ...Object.keys(newMap)])) {
-                const delta = (existingMap[k] || 0) - (newMap[k] || 0);
-                if (delta !== 0) {
-                     await conn.query('UPDATE products SET quantity = GREATEST(0, quantity + ?) WHERE id = ?', [delta, Number(k)]);
-                }
+        }
+        
+        for (const k of new Set([...Object.keys(existingMap), ...Object.keys(newMap)])) {
+            const delta = (existingMap[k] || 0) - (newMap[k] || 0);
+            if (delta !== 0) {
+                 await conn.query('UPDATE products SET quantity = GREATEST(0, quantity + ?) WHERE id = ?', [delta, Number(k)]);
             }
         }
 
         await conn.query('DELETE FROM bill_items WHERE bill_id = ?', [billId]);
         for (const it of items) {
             await conn.query(
-                `INSERT INTO bill_items (bill_id, product_id, product_name, batch, mrp, rate, quantity, expiry, discount, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                 [billId, it.product_id || it.id, it.product_name || it.name, it.batch, it.mrp, it.rate, parseFloat(it.quantity), it.expiry, it.discount, it.cgst, it.sgst]
+                `INSERT INTO bill_items (bill_id, product_id, product_name, hsn, batch, mrp, rate, quantity, expiry, discount, cgst, sgst) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                 [billId, it.product_id || it.id, it.product_name || it.name, it.hsn, it.batch, it.mrp, it.rate, parseFloat(it.quantity), it.expiry, it.discount, it.cgst, it.sgst]
             );
         }
         await conn.query(
@@ -569,12 +572,9 @@ app.put('/api/bills/:id', async (req, res) => {
     }
 });
 
-// ADDED: New endpoint to delete bills
 app.delete('/api/bills/:id', async (req, res) => {
     try {
         const id = Number(req.params.id);
-        // We only expect to delete 'Held' bills this way. 
-        // Completed bills should probably be cancelled/returned, not deleted.
         await query("DELETE FROM bills WHERE id = ? AND status = 'Held'", [id]);
         res.json({ message: 'Held bill deleted' });
     } catch (err) {
@@ -587,7 +587,7 @@ app.delete('/api/bills/:id', async (req, res) => {
 // ---------- PURCHASES ----------
 app.get('/api/purchases', async (req, res) => {
     try {
-        const rows = await query('SELECT id, bill_number, supplier_name, bill_date, tax_type, grand_total FROM purchase_bills ORDER BY bill_date DESC, id DESC');
+        const rows = await query('SELECT id, bill_number, supplier_name, bill_date, tax_type, grand_total, status FROM purchase_bills ORDER BY bill_date DESC, id DESC');
         res.json(rows);
     } catch (err) {
         console.error('GET /api/purchases error:', err);
@@ -616,14 +616,12 @@ app.get('/api/purchases/:id', async (req, res) => {
 app.post('/api/purchases', async (req, res) => {
     const conn = await pool.getConnection();
     try {
-        const { supplierName, billNumber, billDate, taxType, items, overallDiscountPercent } = req.body;
+        const { supplierName, billNumber, billDate, taxType, items, overallDiscountPercent, status } = req.body;
 
         if (!supplierName || !billNumber || !billDate || !taxType || !items || items.length === 0) {
-            conn.release();
             return res.status(400).json({ error: 'Missing required fields for purchase bill.' });
         }
         
-        // Find or create supplier
         let supplierId;
         const [existingSupplier] = await conn.query('SELECT id FROM suppliers WHERE name = ?', [supplierName]);
         if (existingSupplier.length > 0) {
@@ -633,90 +631,141 @@ app.post('/api/purchases', async (req, res) => {
             supplierId = newSupplier.insertId;
         }
 
-        const overallDiscount = Number(overallDiscountPercent) || 0;
-
-        let totalPreTax = 0;
-        let totalGstAmount = 0;
-
-        items.forEach(item => {
-            const base = (Number(item.purchaseRate) || 0) * (parseFloat(item.quantity) || 0);
-            const itemDiscounted = base * (1 - ((Number(item.discount) || 0) / 100));
-            totalPreTax += itemDiscounted;
-        });
-
-        const overallDiscountAmount = totalPreTax * (overallDiscount / 100);
-        const taxableAmount = totalPreTax - overallDiscountAmount;
-
-        items.forEach(item => {
-            const base = (Number(item.purchaseRate) || 0) * (parseFloat(item.quantity) || 0);
-            const itemDiscounted = base * (1 - ((Number(item.discount) || 0) / 100));
-            const finalDiscounted = itemDiscounted * (1 - (overallDiscount / 100));
-            const totalGstPercent = (Number(item.igst) || 0) > 0 ? (Number(item.igst) || 0) : ((Number(item.cgst) || 0) + (Number(item.sgst) || 0));
-            totalGstAmount += finalDiscounted * (totalGstPercent / 100);
-        });
-        
-        const totalBeforeRounding = taxableAmount + totalGstAmount;
-        const grandTotal = Math.round(totalBeforeRounding);
-        const rounding = grandTotal - totalBeforeRounding;
+        const { totalPreTax, overallDiscountAmount, taxableAmount, totalGstAmount, rounding, grandTotal } = calculatePurchaseTotals(items, overallDiscountPercent);
 
         await conn.beginTransaction();
 
         const [purchaseInsert] = await conn.query(
-            `INSERT INTO purchase_bills (supplier_id, supplier_name, bill_number, bill_date, tax_type, total_pre_tax, overall_discount_percent, overall_discount_amount, taxable_amount, total_gst_amount, rounding, grand_total) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [supplierId, supplierName, billNumber, billDate, taxType, totalPreTax, overallDiscount, overallDiscountAmount, taxableAmount, totalGstAmount, rounding, grandTotal]
+            `INSERT INTO purchase_bills (supplier_id, supplier_name, bill_number, bill_date, tax_type, total_pre_tax, overall_discount_percent, overall_discount_amount, taxable_amount, total_gst_amount, rounding, grand_total, status, is_locked) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            [supplierId, supplierName, billNumber, billDate, taxType, totalPreTax, overallDiscountPercent, overallDiscountAmount, taxableAmount, totalGstAmount, rounding, grandTotal, status, status === 'Completed']
         );
         const purchaseBillId = purchaseInsert.insertId;
 
         for (const item of items) {
-            const { 
-                productName, hsn, batch, packaging, quantity, freeQuantity, 
-                mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, 
-                cgst, sgst, igst, saleCgst, saleSgst
-            } = item;
-            
-            const baseAmount = (Number(purchaseRate) || 0) * (parseFloat(quantity) || 0);
-            const discountAmount = baseAmount * ((Number(discount) || 0) / 100);
-            const taxableAmountForItem = baseAmount - discountAmount;
-            const totalGstPercent = (Number(igst) || 0) > 0 ? (Number(igst) || 0) : ((Number(cgst) || 0) + (Number(sgst) || 0));
-            const gstAmountForItem = taxableAmountForItem * (totalGstPercent / 100);
-            const itemTotalAmount = taxableAmountForItem + gstAmountForItem;
-            
-            await conn.query(
-                `INSERT INTO purchase_bill_items (purchase_bill_id, product_name, hsn, batch, packaging, quantity, free_quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, discount, expiry, cgst, sgst, igst, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-                [purchaseBillId, productName, hsn, batch, packaging, parseFloat(quantity), parseFloat(freeQuantity || 0), mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, cgst, sgst, igst, itemTotalAmount]
-            );
-            
-            const totalQuantity = (parseFloat(quantity) || 0) + (parseFloat(freeQuantity) || 0);
-
-            await conn.query(
-                `INSERT INTO products (name, hsn, batch, packaging, quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, expiry, cgst, sgst) 
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                 ON DUPLICATE KEY UPDATE 
-                    quantity = quantity + VALUES(quantity), 
-                    packaging = VALUES(packaging), 
-                    mrp = VALUES(mrp), 
-                    purchase_rate = VALUES(purchase_rate),
-                    sale_rate = VALUES(sale_rate),
-                    sale_rate_inclusive = VALUES(sale_rate_inclusive), 
-                    expiry = VALUES(expiry), 
-                    cgst = VALUES(cgst), 
-                    sgst = VALUES(sgst)`,
-                [productName, hsn, batch, packaging, totalQuantity, mrp, purchaseRate, saleRate, saleRateIncl, expiry, saleCgst, saleSgst]
-            );
+            await insertPurchaseItem(conn, purchaseBillId, item);
+            if (status === 'Completed') {
+                await updateInventoryFromPurchase(conn, item);
+            }
         }
 
         await conn.commit();
-        conn.release();
-        res.json({ message: 'Purchase bill added and inventory updated successfully!', id: purchaseBillId });
+        res.json({ message: `Purchase bill saved as ${status}!`, id: purchaseBillId });
 
     } catch (err) {
         await conn.rollback().catch(() => {});
-        conn.release();
         console.error('POST /api/purchases error:', err);
-        res.status(500).json({ error: 'Failed to create purchase bill and update inventory.' });
+        res.status(500).json({ error: 'Failed to create purchase bill.' });
+    } finally {
+        conn.release();
     }
 });
 
+app.put('/api/purchases/:id', async (req, res) => {
+    const conn = await pool.getConnection();
+    const purchaseId = Number(req.params.id);
+    try {
+        const { supplierName, billNumber, billDate, taxType, items, overallDiscountPercent, status } = req.body;
+        
+        const [existing] = await conn.query('SELECT * FROM purchase_bills WHERE id = ?', [purchaseId]);
+        if(existing.length === 0 || existing[0].is_locked) {
+            return res.status(403).json({ error: "This purchase is locked and cannot be edited." });
+        }
+
+        const { totalPreTax, overallDiscountAmount, taxableAmount, totalGstAmount, rounding, grandTotal } = calculatePurchaseTotals(items, overallDiscountPercent);
+        
+        await conn.beginTransaction();
+        
+        await conn.query('DELETE FROM purchase_bill_items WHERE purchase_bill_id = ?', [purchaseId]);
+
+        for (const item of items) {
+            await insertPurchaseItem(conn, purchaseId, item);
+            if (status === 'Completed') {
+                await updateInventoryFromPurchase(conn, item);
+            }
+        }
+        
+        await conn.query(
+            `UPDATE purchase_bills SET supplier_name=?, bill_number=?, bill_date=?, tax_type=?, total_pre_tax=?, overall_discount_percent=?, overall_discount_amount=?, taxable_amount=?, total_gst_amount=?, rounding=?, grand_total=?, status=?, is_locked=? WHERE id=?`,
+            [supplierName, billNumber, billDate, taxType, totalPreTax, overallDiscountPercent, overallDiscountAmount, taxableAmount, totalGstAmount, rounding, grandTotal, status, status === 'Completed', purchaseId]
+        );
+        
+        await conn.commit();
+        res.json({ message: `Purchase bill updated and marked as ${status}!` });
+    } catch(err) {
+        await conn.rollback().catch(() => {});
+        console.error(`PUT /api/purchases/${purchaseId} error:`, err);
+        res.status(500).json({ error: 'Failed to update purchase bill.' });
+    } finally {
+        conn.release();
+    }
+});
+
+// Helper functions for purchase logic
+function calculatePurchaseTotals(items, overallDiscountPercent) {
+    const overallDiscount = Number(overallDiscountPercent) || 0;
+    let totalPreTax = 0;
+    items.forEach(item => {
+        const base = (Number(item.purchaseRate) || 0) * (parseFloat(item.quantity) || 0);
+        const itemDiscounted = base * (1 - ((Number(item.discount) || 0) / 100));
+        totalPreTax += itemDiscounted;
+    });
+
+    const overallDiscountAmount = totalPreTax * (overallDiscount / 100);
+    const taxableAmount = totalPreTax - overallDiscountAmount;
+    let totalGstAmount = 0;
+
+    items.forEach(item => {
+        const base = (Number(item.purchaseRate) || 0) * (parseFloat(item.quantity) || 0);
+        const itemDiscounted = base * (1 - ((Number(item.discount) || 0) / 100));
+        const finalDiscounted = itemDiscounted * (1 - (overallDiscount / 100));
+        const totalGstPercent = Number(item.purchase_igst) || (Number(item.purchase_cgst) + Number(item.purchase_sgst));
+        totalGstAmount += finalDiscounted * (totalGstPercent / 100);
+    });
+    
+    const totalBeforeRounding = taxableAmount + totalGstAmount;
+    const grandTotal = Math.round(totalBeforeRounding);
+    const rounding = grandTotal - totalBeforeRounding;
+    return { totalPreTax, overallDiscountAmount, taxableAmount, totalGstAmount, rounding, grandTotal };
+}
+
+async function insertPurchaseItem(conn, purchaseBillId, item) {
+    const { 
+        productName, hsn, batch, packaging, quantity, freeQuantity, mrp, 
+        purchaseRate, saleRate, saleRateIncl, discount, expiry, 
+        purchase_cgst, purchase_sgst, purchase_igst, sale_cgst, sale_sgst
+    } = item;
+            
+    const baseAmount = (Number(purchaseRate) || 0) * (parseFloat(quantity) || 0);
+    const discountAmount = baseAmount * ((Number(discount) || 0) / 100);
+    const taxableAmountForItem = baseAmount - discountAmount;
+    const totalGstPercent = Number(purchase_igst) || (Number(purchase_cgst) + Number(purchase_sgst));
+    const gstAmountForItem = taxableAmountForItem * (totalGstPercent / 100);
+    const itemTotalAmount = taxableAmountForItem + gstAmountForItem;
+    
+    await conn.query(
+        `INSERT INTO purchase_bill_items (purchase_bill_id, product_name, hsn, batch, packaging, quantity, free_quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, discount, expiry, purchase_cgst, purchase_sgst, purchase_igst, sale_cgst, sale_sgst, amount) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [purchaseBillId, productName, hsn, batch, packaging, parseFloat(quantity), parseFloat(freeQuantity || 0), mrp, purchaseRate, saleRate, saleRateIncl, discount, expiry, purchase_cgst, purchase_sgst, purchase_igst, sale_cgst, sale_sgst, itemTotalAmount]
+    );
+}
+
+async function updateInventoryFromPurchase(conn, item) {
+    const { 
+        productName, hsn, batch, packaging, quantity, freeQuantity, 
+        mrp, purchaseRate, saleRate, saleRateIncl, expiry, sale_cgst, sale_sgst
+    } = item;
+    const totalQuantity = (parseFloat(quantity) || 0) + (parseFloat(freeQuantity) || 0);
+
+    await conn.query(
+        `INSERT INTO products (name, hsn, batch, packaging, quantity, mrp, purchase_rate, sale_rate, sale_rate_inclusive, expiry, cgst, sgst) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         ON DUPLICATE KEY UPDATE 
+            quantity = quantity + VALUES(quantity), 
+            packaging = VALUES(packaging), mrp = VALUES(mrp), purchase_rate = VALUES(purchase_rate),
+            sale_rate = VALUES(sale_rate), sale_rate_inclusive = VALUES(sale_rate_inclusive), 
+            expiry = VALUES(expiry), cgst = VALUES(cgst), sgst = VALUES(sgst)`,
+        [productName, hsn, batch, packaging, totalQuantity, mrp, purchaseRate, saleRate, saleRateIncl, expiry, sale_cgst, sale_sgst]
+    );
+}
 
 // ---------- REPORTS ----------
 app.get('/api/reports', async (req, res) => {
@@ -734,20 +783,44 @@ app.get('/api/reports', async (req, res) => {
                 queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, patient_name, grand_total FROM bills WHERE status = 'Completed' AND DATE(bill_date) BETWEEN ? AND ? ORDER BY bill_date DESC`;
                 reportData = await query(queryStr, [fromDate, toDate]);
                 break;
-            case 'gst':
+            case 'sale_gst': // Renamed from 'gst' to be specific
                 queryStr = `SELECT bill_number, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, subtotal, total_discount, (subtotal - total_discount) as taxable_value, total_cgst, total_sgst, grand_total FROM bills WHERE status = 'Completed' AND DATE(bill_date) BETWEEN ? AND ? ORDER BY bill_date DESC`;
                 reportData = await query(queryStr, [fromDate, toDate]);
                 break;
+            case 'purchase_gst':
+                queryStr = `
+                    SELECT 
+                        pb.bill_number, 
+                        DATE_FORMAT(pb.bill_date, '%Y-%m-%d') as date, 
+                        pb.supplier_name,
+                        pbi.product_name,
+                        pbi.hsn,
+                        pbi.quantity,
+                        pbi.purchase_rate,
+                        (pbi.quantity * pbi.purchase_rate) AS gross_amount,
+                        pbi.discount,
+                        ((pbi.quantity * pbi.purchase_rate) * (1 - pbi.discount / 100)) as taxable_value,
+                        pbi.purchase_cgst, pbi.purchase_sgst, pbi.purchase_igst,
+                        (((pbi.quantity * pbi.purchase_rate) * (1 - pbi.discount / 100)) * (pbi.purchase_cgst / 100)) as cgst_amount,
+                        (((pbi.quantity * pbi.purchase_rate) * (1 - pbi.discount / 100)) * (pbi.purchase_sgst / 100)) as sgst_amount,
+                        (((pbi.quantity * pbi.purchase_rate) * (1 - pbi.discount / 100)) * (pbi.purchase_igst / 100)) as igst_amount
+                    FROM purchase_bills pb
+                    JOIN purchase_bill_items pbi ON pb.id = pbi.purchase_bill_id
+                    WHERE pb.status = 'Completed' AND DATE(pb.bill_date) BETWEEN ? AND ?
+                    ORDER BY pb.bill_date DESC
+                `;
+                 reportData = await query(queryStr, [fromDate, toDate]);
+                 break;
             case 'inventory':
                 queryStr = `SELECT name, packaging, hsn, batch, quantity, mrp, purchase_rate, sale_rate_inclusive, expiry FROM products ORDER BY name`;
                 reportData = await query(queryStr);
                 break;
             case 'purchases':
-                queryStr = `SELECT bill_number, supplier_name, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, tax_type, grand_total FROM purchase_bills WHERE bill_date BETWEEN ? AND ? ORDER BY bill_date DESC`;
+                queryStr = `SELECT bill_number, supplier_name, DATE_FORMAT(bill_date, '%Y-%m-%d') as date, tax_type, grand_total FROM purchase_bills WHERE status = 'Completed' AND bill_date BETWEEN ? AND ? ORDER BY bill_date DESC`;
                 reportData = await query(queryStr, [fromDate, toDate]);
                 break;
             case 'supplier_purchases':
-                queryStr = `SELECT s.name as supplier_name, pb.bill_number, DATE_FORMAT(pb.bill_date, '%Y-%m-%d') as date, pbi.product_name, pbi.quantity, pbi.purchase_rate, pbi.amount FROM purchase_bill_items pbi JOIN purchase_bills pb ON pbi.purchase_bill_id = pb.id JOIN suppliers s ON pb.supplier_id = s.id WHERE pb.bill_date BETWEEN ? AND ? ORDER BY s.name, pb.bill_date`;
+                queryStr = `SELECT s.name as supplier_name, pb.bill_number, DATE_FORMAT(pb.bill_date, '%Y-%m-%d') as date, pbi.product_name, pbi.quantity, pbi.purchase_rate, pbi.amount FROM purchase_bill_items pbi JOIN purchase_bills pb ON pbi.purchase_bill_id = pb.id JOIN suppliers s ON pb.supplier_id = s.id WHERE pb.status = 'Completed' AND pb.bill_date BETWEEN ? AND ? ORDER BY s.name, pb.bill_date`;
                 reportData = await query(queryStr, [fromDate, toDate]);
                 break;
             case 'expiry':
@@ -758,16 +831,16 @@ app.get('/api/reports', async (req, res) => {
                 queryStr = `
                     SELECT
                         bi.product_name,
-                        p.batch,
+                        bi.batch,
                         p.purchase_rate,
                         SUM(bi.quantity) AS total_quantity_sold,
                         AVG(bi.rate) AS avg_sale_rate,
                         SUM(bi.quantity * (bi.rate - p.purchase_rate)) AS estimated_gross_profit
                     FROM bill_items bi
-                    JOIN products p ON bi.product_id = p.id
                     JOIN bills b ON bi.bill_id = b.id
+                    LEFT JOIN products p ON bi.product_id = p.id
                     WHERE b.status = 'Completed' AND DATE(b.bill_date) BETWEEN ? AND ?
-                    GROUP BY bi.product_name, p.batch, p.purchase_rate
+                    GROUP BY bi.product_name, bi.batch, p.purchase_rate
                     ORDER BY estimated_gross_profit DESC
                 `;
                 reportData = await query(queryStr, [fromDate, toDate]);
@@ -776,14 +849,13 @@ app.get('/api/reports', async (req, res) => {
                 queryStr = `
                     SELECT
                         bi.product_name,
-                        p.batch,
+                        bi.batch,
                         SUM(bi.quantity) as total_quantity_sold,
                         COUNT(DISTINCT b.id) as num_bills
                     FROM bill_items bi
                     JOIN bills b ON bi.bill_id = b.id
-                    LEFT JOIN products p ON bi.product_id = p.id
                     WHERE b.status = 'Completed' AND DATE(b.bill_date) BETWEEN ? AND ?
-                    GROUP BY bi.product_name, p.batch
+                    GROUP BY bi.product_name, bi.batch
                     ORDER BY total_quantity_sold DESC
                 `;
                 reportData = await query(queryStr, [fromDate, toDate]);
@@ -791,26 +863,18 @@ app.get('/api/reports', async (req, res) => {
             case 'hsn_sale':
                 queryStr = `
                     SELECT
-                        p.hsn AS 'hsn_code',
-                        p.packaging,
+                        bi.hsn AS 'hsn_code',
                         SUM(bi.quantity) AS 'quantity',
                         (bi.cgst + bi.sgst) AS 'gst_percent',
-                        SUM(bi.rate * bi.quantity * (1 - bi.discount / 100)) AS 'taxable_amount',
-                        SUM((bi.rate * bi.quantity * (1 - bi.discount / 100)) * (bi.cgst / 100)) AS 'cgst_amount',
-                        SUM((bi.rate * bi.quantity * (1 - bi.discount / 100)) * (bi.sgst / 100)) AS 'sgst_amount',
-                        SUM((bi.rate * bi.quantity * (1 - bi.discount / 100)) * (1 + (bi.cgst + bi.sgst) / 100)) AS 'total_amount'
-                    FROM
-                        bill_items bi
-                    JOIN
-                        bills b ON bi.bill_id = b.id
-                    LEFT JOIN
-                        products p ON bi.product_id = p.id
-                    WHERE b.status = 'Completed' AND
-                        DATE(b.bill_date) BETWEEN ? AND ?
-                    GROUP BY
-                        p.hsn, p.packaging, bi.cgst, bi.sgst
-                    ORDER BY
-                        p.hsn;
+                        SUM(bi.rate * bi.quantity * (1 - (bi.discount / 100)) * (1 - (b.overall_discount_percent / 100))) AS 'taxable_amount',
+                        SUM((bi.rate * bi.quantity * (1 - (bi.discount / 100)) * (1 - (b.overall_discount_percent / 100))) * (bi.cgst / 100)) AS 'cgst_amount',
+                        SUM((bi.rate * bi.quantity * (1 - (bi.discount / 100)) * (1 - (b.overall_discount_percent / 100))) * (bi.sgst / 100)) AS 'sgst_amount',
+                        SUM((bi.rate * bi.quantity * (1 - (bi.discount / 100)) * (1 - (b.overall_discount_percent / 100))) * (1 + (bi.cgst + bi.sgst) / 100)) AS 'total_amount'
+                    FROM bill_items bi
+                    JOIN bills b ON bi.bill_id = b.id
+                    WHERE b.status = 'Completed' AND DATE(b.bill_date) BETWEEN ? AND ?
+                    GROUP BY bi.hsn, bi.cgst, bi.sgst
+                    ORDER BY bi.hsn;
                 `;
                 reportData = await query(queryStr, [fromDate, toDate]);
                 break;
@@ -831,4 +895,3 @@ app.listen(PORT, () => {
     console.log(`API server running on port ${PORT}`);
     console.log(`Open http://localhost:${PORT} in your browser`);
 });
-
